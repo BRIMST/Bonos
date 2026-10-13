@@ -11,6 +11,11 @@
 <body>
   <header class="top"><div class="wrap"><span class="brand">Bono <b>Diario</b></span><a href="/admin">Administración</a></div></header>
   <main class="wrap main">
+    <picture class="banner">
+      <source type="image/webp" srcset="/banner-800.webp 800w, /banner-1600.webp 1600w" sizes="(min-width: 1072px) 1040px, calc(100vw - 32px)">
+      <img src="/banner-1600.jpg" srcset="/banner-800.jpg 800w, /banner-1600.jpg 1600w" sizes="(min-width: 1072px) 1040px, calc(100vw - 32px)" width="1600" height="901" alt="Donaciones de la comunidad. ¡Gracias por tu apoyo!" fetchpriority="high">
+    </picture>
+
     <section class="hero">
       <h1>Bono de Contribución</h1>
       <p>Tu número participa solo en la jornada de hoy. Envía el comprobante y espera la verificación de tu pago antes de las 7:00 p. m.</p>
@@ -22,6 +27,16 @@
         </div>
       </div>
       <div id="status" class="notice" role="status">Consultando hora de cierre…</div>
+    </section>
+
+    <section class="prize hidden" id="prize" aria-labelledby="prizeName">
+      <div class="prize-pic hidden" id="prizePicBox"><img id="prizePic" alt="" width="640" height="640"></div>
+      <div class="prize-body">
+        <p class="prize-kicker" id="prizeKicker">El premio de hoy</p>
+        <h2 id="prizeName"></h2>
+        <p id="prizeDesc"></p>
+        <div class="choice" id="prizeChoice"></div>
+      </div>
     </section>
 
     <ol class="steps">
@@ -63,7 +78,7 @@
           <span class="small">Las imágenes se reducen automáticamente. Un PDF debe pesar menos de 780 KB.</span>
         </label>
         <label class="terms"><input name="acceptedTerms" type="checkbox" required>
-          <span>Acepto que este es un bono de contribución voluntaria, certifico que soy mayor de edad y estoy de acuerdo con los términos del incentivo diario. Entiendo que mi registro solo es válido para la jornada de hoy si mi pago se verifica antes de las 7:00 PM; no se traslada a días posteriores y debo registrarme y pagar nuevamente para otra jornada. En caso de empate, recibiré mi premio completo sin divisiones.</span>
+          <span>Acepto que este es un bono de contribución voluntaria, certifico que soy mayor de edad y estoy de acuerdo con los términos del incentivo diario. Entiendo que mi registro solo es válido para la jornada de hoy si mi pago se verifica antes de las 7:00 PM. Entiendo que la participación de mi número es válida solo para el evento de hoy. En caso de empate, recibiré mi premio completo sin divisiones.</span>
         </label>
         <button class="primary" id="submitBtn" type="submit">Enviar registro</button>
         <p id="formMessage" class="notice" role="status" aria-live="polite"></p>
