@@ -20,18 +20,18 @@ if (!process.env.ADMIN_PASSWORD || !process.env.SESSION_SECRET) {
   console.error('Configura ADMIN_PASSWORD y SESSION_SECRET en .env');
   process.exit(1);
 }
-if (!process.env.FIREBASE_SERVICE_ACCOUNT_JSON || !process.env.FIREBASE_STORAGE_BUCKET) {
-  console.error('Configura FIREBASE_SERVICE_ACCOUNT_JSON y FIREBASE_STORAGE_BUCKET en .env');
+if (!process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
+  console.error('Configura FIREBASE_SERVICE_ACCOUNT_JSON en .env');
   process.exit(1);
 }
 
 const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
 admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount),
-  storageBucket: process.env.FIREBASE_STORAGE_BUCKET
+  credential: admin.credential.cert(serviceAccount)
 });
 const db = admin.firestore();
-const bucket = admin.storage().bucket();
+// Los comprobantes se guardan en Firestore (colección 'receipts'); un documento admite máx. ~1 MiB.
+const MAX_RECEIPT_BYTES = 800 * 1024;
 
 app.set('trust proxy', 1);
 app.use(helmet({
@@ -59,10 +59,14 @@ app.use(cookieSession({
 }));
 app.use('/api/', rateLimit({ windowMs: 15 * 60 * 1000, limit: 100, standardHeaders: true, legacyHeaders: false }));
 app.use(express.static(path.join(__dirname, 'public')));
+const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 10, standardHeaders: true, legacyHeaders: false,
+  message: { error: 'Demasiados intentos. Espera 15 minutos e inténtalo de nuevo.' } });
+const registerLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 20, standardHeaders: true, legacyHeaders: false,
+  message: { error: 'Demasiados registros desde esta conexión. Inténtalo más tarde.' } });
 
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 3 * 1024 * 1024, files: 1 },
+  limits: { fileSize: 1024 * 1024, files: 1 },
   fileFilter: (_req, file, cb) => {
     const allowed = ['image/jpeg', 'image/png', 'application/pdf'];
     cb(allowed.includes(file.mimetype) ? null : new Error('Solo se permiten JPG, PNG o PDF.'), allowed.includes(file.mimetype));
@@ -95,9 +99,32 @@ function currentStatus(now = new Date()) {
   const closed = time >= `${String(CLOSE_HOUR).padStart(2,'0')}:00:00`;
   return { date, time, closed, closeTime: '19:00', assignedDate: closed ? nextDate(date) : date };
 }
-function requireAdmin(req, res, next) {
-  if (req.session && req.session.isAdmin) return next();
-  return res.status(401).json({ error: 'Debes iniciar sesión como administrador.' });
+// Configuración editable desde el panel (llave Bre-B y contraseña), guardada en Firestore.
+// Si aún no existe, se usan las variables de entorno como valores iniciales.
+const settingsRef = db.collection('settings').doc('app');
+async function getSettings() {
+  const snap = await settingsRef.get();
+  return snap.exists ? snap.data() : {};
+}
+function hashPassword(password, salt = crypto.randomBytes(16).toString('hex')) {
+  return { salt, hash: crypto.scryptSync(password, salt, 64).toString('hex') };
+}
+async function verifyPassword(password, settings) {
+  if (settings.passwordHash && settings.passwordSalt) {
+    const a = Buffer.from(hashPassword(password, settings.passwordSalt).hash, 'hex');
+    return crypto.timingSafeEqual(a, Buffer.from(settings.passwordHash, 'hex'));
+  }
+  return crypto.timingSafeEqual(sha256(password), sha256(process.env.ADMIN_PASSWORD));
+}
+async function requireAdmin(req, res, next) {
+  try {
+    if (req.session && req.session.isAdmin) {
+      // Al cambiar la contraseña, las sesiones anteriores dejan de ser válidas.
+      const settings = await getSettings();
+      if ((req.session.pwv || 0) === (settings.passwordVersion || 0)) return next();
+    }
+    return res.status(401).json({ error: 'Debes iniciar sesión como administrador.' });
+  } catch (err) { return next(err); }
 }
 function cleanString(value, max) {
   return typeof value === 'string' ? value.trim().slice(0, max) : '';
@@ -108,18 +135,50 @@ function validPhone(phone) {
 function validNumber(number) {
   return /^\d{5}$/.test(number);
 }
+function validDate(value) {
+  return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(value));
+}
+// Verifica que el contenido real del archivo coincida con el tipo declarado (no solo el mimetype del cliente).
+function matchesSignature(buf, mime) {
+  if (!buf || buf.length < 8) return false;
+  if (mime === 'image/jpeg') return buf[0] === 0xFF && buf[1] === 0xD8 && buf[2] === 0xFF;
+  if (mime === 'image/png') return buf.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]));
+  if (mime === 'application/pdf') return buf.subarray(0, 5).toString('latin1') === '%PDF-';
+  return false;
+}
+function sha256(value) {
+  return crypto.createHash('sha256').update(String(value)).digest();
+}
+// Consulta de un día usando solo el índice de un campo (no requiere índices compuestos en Firestore).
+async function recordsForDate(date) {
+  const snap = await db.collection('registrations').where('createdDateBogota', '==', date).limit(5000).get();
+  return snap.docs.map(d => d.data()).sort((a, b) => String(a.createdAtIso).localeCompare(String(b.createdAtIso)));
+}
+function publicRecord(d) {
+  return {
+    id: d.id, createdDateBogota: d.createdDateBogota,
+    createdTimeBogota: d.createdTimeBogota, assignedDate: d.assignedDate,
+    receivedAfterClose: d.receivedAfterClose, fullName: d.fullName,
+    socialUser: d.socialUser, phone: d.phone, number: d.number,
+    amountCop: d.amountCop, paymentStatus: d.paymentStatus,
+    participationStatus: d.participationStatus || 'pendiente_verificacion'
+  };
+}
 
-app.get('/api/status', (_req, res) => {
+app.get('/api/status', async (_req, res, next) => {
+  try {
   const status = currentStatus();
+  const settings = await getSettings();
   res.json({
     date: status.date, time: status.time, closed: status.closed,
     closeTime: status.closeTime, price: PRICE_COP,
-    brebLabel: process.env.BREB_LABEL || 'Llave Bre-B',
-    brebValue: process.env.BREB_VALUE || 'Configura la llave de pago'
+    brebLabel: settings.brebLabel || process.env.BREB_LABEL || 'Llave Bre-B',
+    brebValue: settings.brebValue || process.env.BREB_VALUE || 'Pago no configurado aún'
   });
+  } catch (err) { next(err); }
 });
 
-app.post('/api/register', upload.single('receipt'), async (req, res, next) => {
+app.post('/api/register', registerLimiter, upload.single('receipt'), async (req, res, next) => {
   try {
     const fullName = cleanString(req.body.fullName, 120);
     const socialUser = cleanString(req.body.socialUser, 80);
@@ -133,6 +192,9 @@ app.post('/api/register', upload.single('receipt'), async (req, res, next) => {
     if (!validNumber(number)) return res.status(400).json({ error: 'El número debe tener exactamente 5 cifras, incluidos los ceros iniciales.' });
     if (!acceptedTerms) return res.status(400).json({ error: 'Debes aceptar los términos.' });
     if (!req.file) return res.status(400).json({ error: 'Debes adjuntar el comprobante de pago.' });
+    if (!matchesSignature(req.file.buffer, req.file.mimetype)) {
+      return res.status(400).json({ error: 'El archivo no es un JPG, PNG o PDF válido.' });
+    }
 
     // La hora se calcula exclusivamente en el servidor, en la zona de Bogotá.
     const status = currentStatus();
@@ -140,18 +202,10 @@ app.post('/api/register', upload.single('receipt'), async (req, res, next) => {
     if (status.closed) {
       return res.status(409).json({ error: 'La jornada de hoy cerró a las 7:00 p. m. Los registros no se trasladan al día siguiente. Vuelve mañana y realiza un nuevo registro con su comprobante de pago.' });
     }
+    if (req.file.buffer.length > MAX_RECEIPT_BYTES) {
+      return res.status(413).json({ error: 'El comprobante pesa demasiado (máximo 800 KB). Usa una captura más liviana o un PDF más pequeño.' });
+    }
     const id = crypto.randomUUID();
-    const ext = req.file.mimetype === 'image/jpeg' ? 'jpg' : req.file.mimetype === 'image/png' ? 'png' : 'pdf';
-    const objectPath = `receipts/${status.date}/${id}.${ext}`;
-    const file = bucket.file(objectPath);
-    await file.save(req.file.buffer, {
-      resumable: false,
-      metadata: {
-        contentType: req.file.mimetype,
-        metadata: { recordId: id }
-      },
-      public: false
-    });
 
     const record = {
       id,
@@ -166,13 +220,18 @@ app.post('/api/register', upload.single('receipt'), async (req, res, next) => {
       phone,
       number,
       amountCop: PRICE_COP,
-      receiptPath: objectPath,
+      hasReceipt: true,
       receiptMimeType: req.file.mimetype,
       paymentStatus: 'pendiente_revision',
       participationStatus: 'pendiente_verificacion',
       termsAccepted: true,
       termsVersion: '2026-10-13-v1'
     };
+    // Primero el comprobante y luego el registro: nunca queda un registro sin comprobante.
+    await db.collection('receipts').doc(id).set({
+      id, mimeType: req.file.mimetype, size: req.file.buffer.length,
+      data: req.file.buffer, createdDateBogota: status.date
+    });
     await db.collection('registrations').doc(id).set(record);
     res.status(201).json({
       message: 'Registro recibido para la jornada de hoy. La participación solo queda aceptada cuando el pago sea verificado antes de las 7:00 p. m. Si no se verifica a tiempo, no participa y no se traslada a otro día.',
@@ -185,59 +244,99 @@ app.post('/api/register', upload.single('receipt'), async (req, res, next) => {
   }
 });
 
-app.post('/api/admin/login', async (req, res) => {
-  const password = typeof req.body.password === 'string' ? req.body.password : '';
-  const expected = process.env.ADMIN_PASSWORD;
-  const a = Buffer.from(password);
-  const b = Buffer.from(expected);
-  const valid = a.length === b.length && crypto.timingSafeEqual(a, b);
-  if (!valid) return res.status(401).json({ error: 'Contraseña incorrecta.' });
-  req.session.isAdmin = true;
-  res.json({ ok: true });
+app.post('/api/admin/login', loginLimiter, async (req, res, next) => {
+  try {
+    const password = typeof req.body.password === 'string' ? req.body.password : '';
+    const settings = await getSettings();
+    if (!(await verifyPassword(password, settings))) return res.status(401).json({ error: 'Contraseña incorrecta.' });
+    req.session.isAdmin = true;
+    req.session.pwv = settings.passwordVersion || 0;
+    res.json({ ok: true });
+  } catch (err) { next(err); }
 });
 app.post('/api/admin/logout', requireAdmin, (req, res) => {
   req.session = null;
   res.json({ ok: true });
 });
-app.get('/api/admin/me', (req, res) => res.json({ authenticated: Boolean(req.session && req.session.isAdmin) }));
+app.get('/api/admin/me', async (req, res, next) => {
+  try {
+    const settings = await getSettings();
+    const ok = Boolean(req.session && req.session.isAdmin && (req.session.pwv || 0) === (settings.passwordVersion || 0));
+    res.json({ authenticated: ok });
+  } catch (err) { next(err); }
+});
+
+app.get('/api/admin/settings', requireAdmin, async (_req, res, next) => {
+  try {
+    const settings = await getSettings();
+    res.json({
+      brebLabel: settings.brebLabel || process.env.BREB_LABEL || 'Llave Bre-B',
+      brebValue: settings.brebValue || process.env.BREB_VALUE || ''
+    });
+  } catch (err) { next(err); }
+});
+
+app.put('/api/admin/settings', requireAdmin, async (req, res, next) => {
+  try {
+    const brebLabel = cleanString(req.body.brebLabel, 60);
+    const brebValue = cleanString(req.body.brebValue, 120);
+    if (brebLabel.length < 2) return res.status(400).json({ error: 'Escribe un nombre para el método de pago (ej. Llave Bre-B).' });
+    if (brebValue.length < 3) return res.status(400).json({ error: 'Escribe la llave o dato de pago.' });
+    await settingsRef.set({ brebLabel, brebValue, updatedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
+    res.json({ ok: true, brebLabel, brebValue });
+  } catch (err) { next(err); }
+});
+
+app.post('/api/admin/password', requireAdmin, async (req, res, next) => {
+  try {
+    const current = typeof req.body.currentPassword === 'string' ? req.body.currentPassword : '';
+    const next1 = typeof req.body.newPassword === 'string' ? req.body.newPassword : '';
+    const settings = await getSettings();
+    if (!(await verifyPassword(current, settings))) return res.status(403).json({ error: 'La contraseña actual no es correcta.' });
+    if (next1.length < 10 || next1.length > 200) return res.status(400).json({ error: 'La nueva contraseña debe tener al menos 10 caracteres.' });
+    const { salt, hash } = hashPassword(next1);
+    const passwordVersion = (settings.passwordVersion || 0) + 1;
+    await settingsRef.set({ passwordSalt: salt, passwordHash: hash, passwordVersion }, { merge: true });
+    // Esta sesión sigue activa; las demás quedan invalidadas.
+    req.session.pwv = passwordVersion;
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+});
 
 app.get('/api/admin/registrations', requireAdmin, async (req, res, next) => {
   try {
-    const todayOnly = req.query.today === '1';
     const status = currentStatus();
-    let query = db.collection('registrations').orderBy('createdAt', 'desc');
-    if (todayOnly) {
-      // Registros creados hoy antes de las 19:00 hora Bogotá, según la hora del servidor.
-      query = db.collection('registrations')
-        .where('createdDateBogota', '==', status.date)
-        .where('receivedAfterClose', '==', false)
-        .orderBy('createdAt', 'desc');
+    const dayMode = req.query.today === '1' || validDate(req.query.date);
+    const date = validDate(req.query.date) ? req.query.date : status.date;
+    let docs;
+    if (dayMode) {
+      docs = (await recordsForDate(date)).reverse();
+    } else {
+      const snap = await db.collection('registrations').orderBy('createdAt', 'desc').limit(1000).get();
+      docs = snap.docs.map(d => d.data());
     }
-    const snap = await query.limit(1000).get();
-    const records = snap.docs.map(doc => {
-      const d = doc.data();
-      return {
-        id: d.id, createdDateBogota: d.createdDateBogota,
-        createdTimeBogota: d.createdTimeBogota, assignedDate: d.assignedDate,
-        receivedAfterClose: d.receivedAfterClose, fullName: d.fullName,
-        socialUser: d.socialUser, phone: d.phone, number: d.number,
-        amountCop: d.amountCop, paymentStatus: d.paymentStatus,
-        participationStatus: d.participationStatus || 'pendiente_verificacion'
-      };
-    });
-    res.json({ records, status, limit: 1000 });
+    const accepted = docs.filter(d => d.participationStatus === 'aceptada' && !d.receivedAfterClose);
+    const summary = {
+      total: docs.length,
+      accepted: accepted.length,
+      acceptedAmountCop: accepted.reduce((sum, d) => sum + (d.amountCop || 0), 0),
+      pending: docs.filter(d => (d.participationStatus || 'pendiente_verificacion') === 'pendiente_verificacion').length,
+      rejected: docs.filter(d => d.participationStatus === 'rechazada').length
+    };
+    res.json({ records: docs.slice(0, 1000).map(publicRecord), status, summary, date: dayMode ? date : null, limit: 1000 });
   } catch (err) { next(err); }
 });
 
 app.get('/api/admin/receipt/:id', requireAdmin, async (req, res, next) => {
   try {
-    const snap = await db.collection('registrations').doc(req.params.id).get();
-    if (!snap.exists) return res.status(404).json({ error: 'Registro no encontrado.' });
+    if (!/^[0-9a-f-]{36}$/.test(req.params.id)) return res.status(404).json({ error: 'Comprobante no encontrado.' });
+    const snap = await db.collection('receipts').doc(req.params.id).get();
+    if (!snap.exists) return res.status(404).json({ error: 'Comprobante no encontrado.' });
     const data = snap.data();
-    const [url] = await bucket.file(data.receiptPath).getSignedUrl({
-      action: 'read', expires: Date.now() + 5 * 60 * 1000
-    });
-    res.json({ url, mimeType: data.receiptMimeType });
+    res.setHeader('Content-Type', data.mimeType);
+    res.setHeader('Content-Disposition', 'inline');
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.send(Buffer.from(data.data));
   } catch (err) { next(err); }
 });
 
@@ -257,6 +356,13 @@ app.patch('/api/admin/registrations/:id/payment', requireAdmin, async (req, res,
         return res.status(409).json({ error: 'Solo se puede verificar un pago antes de las 7:00 p. m. del mismo día de la inscripción. Esta participación no se traslada a otra jornada.' });
       }
     }
+    // Una participación ya aceptada queda congelada una vez cierra la jornada.
+    if (record.participationStatus === 'aceptada' && paymentStatus !== 'verificado') {
+      const nowStatus = currentStatus();
+      if (nowStatus.closed || record.assignedDate !== nowStatus.date) {
+        return res.status(409).json({ error: 'La jornada ya cerró: una participación aceptada no se puede modificar.' });
+      }
+    }
     const participationStatus = paymentStatus === 'verificado' ? 'aceptada' : paymentStatus === 'rechazado' ? 'rechazada' : 'pendiente_verificacion';
     await ref.update({
       paymentStatus, participationStatus,
@@ -270,11 +376,9 @@ app.patch('/api/admin/registrations/:id/payment', requireAdmin, async (req, res,
 app.get('/api/admin/export.xlsx', requireAdmin, async (req, res, next) => {
   try {
     const status = currentStatus();
-    const snap = await db.collection('registrations')
-      .where('createdDateBogota', '==', status.date)
-      .where('receivedAfterClose', '==', false)
-      .where('participationStatus', '==', 'aceptada')
-      .orderBy('createdAt', 'asc').limit(1000).get();
+    const date = validDate(req.query.date) ? req.query.date : status.date;
+    status.date = date;
+    const accepted = (await recordsForDate(date)).filter(d => d.participationStatus === 'aceptada' && !d.receivedAfterClose);
 
     const ExcelJS = require('exceljs');
     const workbook = new ExcelJS.Workbook();
@@ -303,8 +407,7 @@ app.get('/api/admin/export.xlsx', requireAdmin, async (req, res, next) => {
     };
     sheet.autoFilter = { from: 'A1', to: 'J1' };
 
-    snap.docs.forEach(doc => {
-      const d = doc.data();
+    accepted.forEach(d => {
       sheet.addRow({
         id: d.id,
         date: d.createdDateBogota,
@@ -334,14 +437,11 @@ app.get('/api/admin/export.xlsx', requireAdmin, async (req, res, next) => {
 app.get('/api/admin/export.csv', requireAdmin, async (req, res, next) => {
   try {
     const status = currentStatus();
-    const snap = await db.collection('registrations')
-      .where('createdDateBogota', '==', status.date)
-      .where('receivedAfterClose', '==', false)
-      .where('participationStatus', '==', 'aceptada')
-      .orderBy('createdAt', 'asc').limit(1000).get();
+    const date = validDate(req.query.date) ? req.query.date : status.date;
+    status.date = date;
+    const accepted = (await recordsForDate(date)).filter(d => d.participationStatus === 'aceptada' && !d.receivedAfterClose);
     const rows = [['ID','Fecha Bogotá','Hora Bogotá','Nombre','Red social','Celular','Número','Estado pago']];
-    snap.docs.forEach(doc => {
-      const d = doc.data();
+    accepted.forEach(d => {
       rows.push([d.id,d.createdDateBogota,d.createdTimeBogota,d.fullName,d.socialUser,d.phone,d.number,d.paymentStatus]);
     });
     const csv = rows.map(row => row.map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',')).join('\r\n');
@@ -359,9 +459,9 @@ app.get('*', (req, res, next) => {
 app.use((err, _req, res, _next) => {
   console.error(err);
   const message = err instanceof multer.MulterError
-    ? (err.code === 'LIMIT_FILE_SIZE' ? 'El comprobante supera 3 MB.' : 'No se pudo procesar el archivo.')
-    : (err.message || 'Error interno.');
-  res.status(500).json({ error: message });
+    ? (err.code === 'LIMIT_FILE_SIZE' ? 'El comprobante pesa demasiado (máximo 800 KB).' : 'No se pudo procesar el archivo.')
+    : (err.message === 'Solo se permiten JPG, PNG o PDF.' ? err.message : 'Error interno. Inténtalo de nuevo.');
+  res.status(err instanceof multer.MulterError || err.message === 'Solo se permiten JPG, PNG o PDF.' ? 400 : 500).json({ error: message });
 });
 
 if (require.main === module) {

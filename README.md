@@ -1,6 +1,6 @@
 # Bono de Contribución Diaria — Vercel + Firebase
 
-Aplicación web para registro diario, revisión manual de pagos y administración de participantes. Está preparada para desplegarse en Vercel y usa Firebase Firestore para registros y Firebase Storage privado para comprobantes.
+Aplicación web para registro diario, revisión manual de pagos y administración de participantes. Está preparada para desplegarse en Vercel y usa Firebase Firestore para registros y comprobantes (no usa Firebase Storage).
 
 ## Reglas que aplica el sistema
 
@@ -18,9 +18,8 @@ Aplicación web para registro diario, revisión manual de pagos y administració
 ### 1. Crear Firebase
 
 1. Crea un proyecto en [Firebase Console](https://console.firebase.google.com/).
-2. Activa **Cloud Firestore** y **Cloud Storage**.
+2. Activa **Cloud Firestore** (no necesitas Cloud Storage).
 3. En la configuración del proyecto, crea una clave de cuenta de servicio y guarda el JSON de forma privada.
-4. Copia el nombre exacto del bucket de Storage.
 
 ### 2. Subir el proyecto a GitHub
 
@@ -35,7 +34,6 @@ En **Project → Settings → Environment Variables**, agrega estas variables pa
 - `NODE_ENV` = `production`
 - `ADMIN_PASSWORD` = una contraseña administrativa larga, única y difícil de adivinar
 - `SESSION_SECRET` = una cadena aleatoria de al menos 32 caracteres
-- `FIREBASE_STORAGE_BUCKET` = nombre exacto del bucket de Firebase Storage
 - `FIREBASE_SERVICE_ACCOUNT_JSON` = el JSON completo de la cuenta de servicio en una sola línea
 - `BREB_LABEL` = texto que identifica la forma de pago, por ejemplo `Llave Bre-B`
 - `BREB_VALUE` = la llave/dato que quieres mostrar públicamente
@@ -67,9 +65,25 @@ Requiere Node.js 20 o superior.
 ## Consideraciones técnicas y de seguridad
 
 - El inicio de sesión usa una cookie firmada, adecuada para el modelo serverless de Vercel; no depende de sesiones guardadas en memoria del proceso.
-- Los comprobantes se guardan privados en Firebase Storage y se abren mediante enlaces firmados temporales.
-- El límite de comprobante es 3 MB para ajustarse al límite de carga de funciones de Vercel. Formatos permitidos: JPG, PNG y PDF.
+- Los comprobantes se guardan en Firestore (colección `receipts`) y solo se sirven a una sesión de administrador.
+- Límite de comprobante: 800 KB (tope de 1 MiB por documento de Firestore). Las imágenes se comprimen automáticamente en el navegador; los PDF deben pesar menos de 780 KB. Formatos: JPG, PNG y PDF.
 - Firestore puede pedir un índice compuesto para algunas consultas; si ocurre, sigue el enlace de creación de índice del error de Firebase.
-- La cuenta de servicio necesita permisos para Firestore y Storage. No configures el bucket como público.
+- La cuenta de servicio necesita permisos para Firestore.
 - Antes de producción, considera protección CSRF adicional, MFA, registro de auditoría, copias de seguridad y una política de retención/borrado de comprobantes.
 - Verifica asesoría legal y las autorizaciones aplicables en Colombia antes de cobrar contribuciones vinculadas a premios o resultados de lotería. Llamarlo “bono de contribución” no garantiza que el esquema esté exento de regulación.
+
+## Cambios de la versión 1.2
+
+- Panel admin: selector de jornada, resumen (registrados, aceptados, pendientes, rechazados, recaudo) y exportación Excel/CSV de cualquier fecha.
+- Las consultas ya no requieren índices compuestos de Firestore.
+- Límite de intentos en el login (10 / 15 min) y en registros (20 / 15 min por IP).
+- Se valida el contenido real del comprobante (JPG, PNG o PDF), no solo el tipo declarado.
+- Una participación aceptada queda congelada al cerrar la jornada.
+- Los errores internos ya no exponen detalles al público.
+
+## Llave Bre-B y contraseña desde el panel (v1.3)
+
+- En `/admin`, sección **Configuración**, editas el nombre y la llave Bre-B que ve el público, y cambias la contraseña. Se guardan en Firestore (colección `settings`); la contraseña se guarda con hash (scrypt), nunca en texto plano.
+- `ADMIN_PASSWORD` solo se usa como contraseña inicial hasta que la cambies. `BREB_LABEL` y `BREB_VALUE` son opcionales.
+- Al cambiar la contraseña se cierran las demás sesiones abiertas.
+- `SESSION_SECRET`, `FIREBASE_*` siguen siendo variables de entorno (son técnicas, no deben editarse desde la web).
