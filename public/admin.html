@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Administración | Bono Diario</title>
+  <link rel="stylesheet" href="/styles.css"><script defer src="/admin.js"></script>
+</head>
+<body>
+<header class="top"><div class="wrap"><span class="brand">BONO <b>DIARIO</b> / ADMIN</span><a href="/">Formulario público</a></div></header>
+<main class="wrap main">
+  <section class="hero compact"><p class="eyebrow">BACKOFFICE</p><h1>Panel de administración</h1><p>Acceso privado para revisar registros y comprobantes.</p></section>
+  <section class="panel" id="loginPanel">
+    <h2>Iniciar sesión</h2>
+    <form id="loginForm"><label>Contraseña administrativa<input name="password" type="password" autocomplete="current-password" required></label><button class="primary">Entrar</button><p id="loginMessage" class="notice" role="status"></p></form>
+  </section>
+  <section class="panel hidden" id="dashboard">
+    <div class="toolbar"><h2>Registros</h2><button id="logout" class="secondary">Cerrar sesión</button></div>
+    <p id="adminStatus" class="notice"></p>
+    <div class="toolbar wrap-controls">
+      <button id="allRecords" class="secondary">Todos los registros</button>
+      <button id="todayRecords" class="primary">Hoy antes de las 7:00 p. m.</button>
+      <button id="exportXlsx" class="primary">Exportar Excel del día (.xlsx)</button>
+      <button id="exportCsv" class="secondary">Exportar CSV del día</button>
+      <button id="refresh" class="secondary">Actualizar</button>
+    </div>
+    <p class="small">La vista diaria muestra registros enviados hoy. Solo las inscripciones con pago verificado antes de las 7:00 p. m. quedan aceptadas para la jornada de hoy. Las pendientes al cierre no participan ni se trasladan. El CSV exporta únicamente participaciones aceptadas. Se muestran hasta 1.000 registros por consulta.</p>
+    <div class="table-wrap"><table><thead><tr><th>ID</th><th>Fecha / hora Bogotá</th><th>Nombre</th><th>Red social</th><th>Celular</th><th>Número</th><th>Pago</th><th>Participación</th><th>Comprobante</th></tr></thead><tbody id="rows"><tr><td colspan="8">Inicia sesión para ver registros.</td></tr></tbody></table></div>
+    <p id="tableMessage" class="notice"></p>
+  </section>
+</main>
+<footer><div class="wrap">Los comprobantes solo son accesibles para una sesión administrativa autorizada.</div></footer>
+</body>
+</html>

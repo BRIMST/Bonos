@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#123b72">
+  <title>Bono de Contribución Diaria</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script defer src="/app.js"></script>
+</head>
+<body>
+  <header class="top"><div class="wrap"><span class="brand">BONO <b>DIARIO</b></span><a href="/admin">Administración</a></div></header>
+  <main class="wrap main">
+    <section class="hero">
+      <p class="eyebrow">PARTICIPACIÓN DIARIA</p>
+      <h1>Bono de Contribución</h1>
+      <p>Tu número participa únicamente en la jornada de hoy. Debes enviar el comprobante y tener el pago verificado antes de las 7:00 p. m. No hay participación automática en jornadas futuras.</p>
+      <div class="price">$5.000 <small>COP por registro</small></div>
+      <div id="status" class="notice" role="status">Consultando hora de cierre…</div>
+    </section>
+    <section class="panel">
+      <h2>Datos de pago</h2>
+      <p>Realiza la transferencia manual y adjunta la captura o el PDF del comprobante. El envío del formulario no confirma por sí solo la participación: el pago debe verificarse antes del cierre de hoy.</p>
+      <div class="payment">
+        <span id="brebLabel">Llave Bre-B</span>
+        <strong id="brebValue">Cargando…</strong>
+        <button type="button" class="secondary" id="copyKey">Copiar llave</button>
+      </div>
+      <p class="small">Verifica el destinatario en tu aplicación bancaria antes de transferir. Si el pago no se verifica antes de las 7:00 p. m., el registro no participa hoy y no se pasa al día siguiente. Para otra jornada debes hacer un nuevo registro y pago.</p>
+    </section>
+    <section class="panel">
+      <h2>Formulario de registro</h2>
+      <form id="registerForm">
+        <label>Nombre completo<input name="fullName" autocomplete="name" minlength="3" maxlength="120" required></label>
+        <label>Usuario de red social<input name="socialUser" placeholder="@usuario" maxlength="80" required></label>
+        <label>Número de celular<input name="phone" type="tel" inputmode="numeric" pattern="[0-9]{10}" maxlength="10" minlength="10" placeholder="3001234567" required></label>
+        <label>Número de 5 cifras
+          <input name="number" inputmode="numeric" pattern="[0-9]{5}" maxlength="5" minlength="5" placeholder="00523" aria-describedby="numberHelp" required>
+          <span class="small" id="numberHelp">Se permiten ceros a la izquierda. Los números repetidos pueden registrarse por varias personas.</span>
+        </label>
+        <label>Comprobante de pago (JPG, PNG o PDF; máximo 3 MB)
+          <input name="receipt" type="file" accept=".jpg,.jpeg,.png,.pdf,image/jpeg,image/png,application/pdf" required>
+        </label>
+        <label class="terms"><input name="acceptedTerms" type="checkbox" required>
+          <span>Acepto que este es un bono de contribución voluntaria, certifico que soy mayor de edad y estoy de acuerdo con los términos del incentivo diario. Entiendo que mi registro solo es válido para la jornada de hoy si mi pago se verifica antes de las 7:00 PM; no se traslada a días posteriores y debo registrarme y pagar nuevamente para otra jornada. En caso de empate, recibiré mi premio completo sin divisiones.</span>
+        </label>
+        <button class="primary" id="submitBtn" type="submit">Enviar registro</button>
+        <p id="formMessage" class="notice" role="status" aria-live="polite"></p>
+      </form>
+    </section>
+    <p class="legal small">Antes de operar, publica términos completos, reglas de verificación y fuente oficial del resultado, y verifica las autorizaciones legales aplicables en Colombia. No se garantiza un premio por el solo envío del formulario.</p>
+  </main>
+  <footer><div class="wrap">Bono de Contribución Diaria · Hora de referencia: Colombia (Bogotá)</div></footer>
+</body>
+</html>
