@@ -3,13 +3,13 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#123b72">
-  <title>Bono de Contribución Diaria</title>
+  <title>Juntos Sumamos · Cada aporte cuenta</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%231a1446'/%3E%3Ctext x='16' y='23' font-size='20' font-weight='900' text-anchor='middle' fill='%23ffc82e' font-family='Arial'%3EB%3C/text%3E%3C/svg%3E">
   <link rel="stylesheet" href="/styles.css">
   <script defer src="/app.js"></script>
 </head>
 <body>
-  <header class="top"><div class="wrap"><span class="brand">Bono <b>Diario</b></span><a href="/admin">Administración</a></div></header>
+  <header class="top"><div class="wrap"><span class="brand">Juntos <b>Sumamos</b></span><a href="/admin">Administración</a></div></header>
   <main class="wrap main">
     <picture class="banner">
       <source type="image/webp" srcset="/banner-800.webp 800w, /banner-1600.webp 1600w" sizes="(min-width: 1072px) 1040px, calc(100vw - 32px)">
@@ -17,8 +17,8 @@
     </picture>
 
     <section class="hero">
-      <h1>Bono de Contribución</h1>
-      <p>Tu número participa solo en la jornada de hoy. Envía el comprobante y espera la verificación de tu pago antes de las 7:00 p. m.</p>
+      <h1>Cada aporte cuenta</h1>
+      <p>Gracias por ser parte de esta comunidad: con tu apoyo seguimos creciendo juntos. Y como agradecimiento, tu número participa por el premio de hoy. Envía tu comprobante y espera la verificación de tu pago antes de las 7:00 p. m.</p>
       <div class="hero-row">
         <div class="price">$5.000 <small>COP por registro</small></div>
         <div class="clock" id="clock" role="timer" aria-live="off">
@@ -40,14 +40,14 @@
     </section>
 
     <ol class="steps">
-      <li>Transfiere $5.000 a la llave de pago</li>
+      <li>Haz tu aporte de $5.000 a la llave de pago</li>
       <li>Escribe tu número de 5 cifras y sube el comprobante</li>
       <li>Verificamos tu pago antes de las 7:00 p. m. y tu número queda aceptado</li>
     </ol>
 
     <section class="panel">
-      <h2>Datos de pago</h2>
-      <p>Haz la transferencia desde tu app bancaria. Enviar el formulario no confirma tu participación: el pago debe quedar verificado antes del cierre.</p>
+      <h2>Haz tu aporte</h2>
+      <p>Cada aporte ayuda a que la comunidad siga creciendo. Haz la transferencia desde tu app bancaria. Enviar el formulario no confirma tu participación: el pago debe quedar verificado antes del cierre.</p>
       <div class="payment">
         <span id="brebLabel">Llave Bre-B</span>
         <strong id="brebValue">Cargando…</strong>
@@ -64,7 +64,7 @@
             <small>Tu número de hoy</small>
             <div class="digits" id="digits"></div>
           </div>
-          <div class="ticket-stub"><span><b>$5.000</b>bono diario</span></div>
+          <div class="ticket-stub"><span><b>$5.000</b>tu aporte</span></div>
         </div>
         <label>Número de 5 cifras
           <input name="number" inputmode="numeric" pattern="[0-9]{5}" maxlength="5" minlength="5" placeholder="00523" aria-describedby="numberHelp" autocomplete="off" required>
@@ -102,6 +102,6 @@
       <button type="button" class="primary" id="closeSuccess">Listo</button>
     </div>
   </div>
-  <footer><div class="wrap">Bono de Contribución Diaria · Hora de referencia: Colombia (Bogotá)</div></footer>
+  <footer><div class="wrap">Juntos Sumamos · Hora de referencia: Colombia (Bogotá)</div></footer>
 </body>
 </html>

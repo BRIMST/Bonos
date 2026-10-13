@@ -1,56 +1,148 @@
 <!doctype html>
 <html lang="es">
 <head>
-  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Administración | Bono Diario</title>
+  <meta charset="utf-8"><meta name="theme-color" content="#1a1446"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Administración | Juntos Sumamos</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%231a1446'/%3E%3Ctext x='16' y='23' font-size='20' font-weight='900' text-anchor='middle' fill='%23ffc82e' font-family='Arial'%3EB%3C/text%3E%3C/svg%3E">
   <link rel="stylesheet" href="/styles.css"><script defer src="/admin.js"></script>
 </head>
-<body>
-<header class="top"><div class="wrap"><span class="brand">Bono <b>Diario</b> · Admin</span><a href="/">Formulario público</a></div></header>
+<body class="admin">
+<header class="top"><div class="wrap">
+  <span class="brand">Juntos <b>Sumamos</b> · Admin</span>
+  <span class="top-actions"><a href="/">Ver página pública</a><button id="logout" class="top-btn hidden" type="button">Cerrar sesión</button></span>
+</div></header>
+
 <main class="wrap main">
-  <section class="hero compact"><h1>Panel de administración</h1><p>Acceso privado para revisar registros y comprobantes.</p></section>
-  <section class="panel" id="loginPanel">
-    <h2>Iniciar sesión</h2>
-    <form id="loginForm"><label>Contraseña administrativa<input name="password" type="password" autocomplete="current-password" required></label><button class="primary">Entrar</button><p id="loginMessage" class="notice" role="status"></p></form>
+  <!-- Inicio de sesión -->
+  <section class="panel login" id="loginPanel">
+    <h2>Panel de administración</h2>
+    <p class="small">Entra para revisar pagos, administrar el premio y descargar la lista de participantes.</p>
+    <form id="loginForm">
+      <label>Contraseña<input name="password" type="password" autocomplete="current-password" required></label>
+      <button class="primary">Entrar</button>
+      <p id="loginMessage" class="notice" role="status"></p>
+    </form>
   </section>
-  <section class="panel hidden" id="settingsPanel">
-    <h2>Configuración</h2>
-    <div class="two-col">
-      <form id="brebForm">
-        <h3>Datos de pago (se muestran al público)</h3>
-        <label>Nombre del método<input name="brebLabel" maxlength="60" placeholder="Llave Bre-B" required></label>
-        <label>Llave / dato de pago<input name="brebValue" maxlength="120" placeholder="@mi-llave" required></label>
-        <button class="primary">Guardar datos de pago</button>
-        <p id="brebMessage" class="notice" role="status"></p>
+
+  <!-- Panel -->
+  <div id="app" class="hidden">
+    <p class="day-status" id="adminStatus"></p>
+
+    <nav class="tabs" role="tablist" aria-label="Secciones del panel">
+      <button class="tab active" role="tab" id="tab-registros" aria-selected="true" aria-controls="view-registros" data-tab="registros">Registros <span class="badge hidden" id="pendingBadge">0</span></button>
+      <button class="tab" role="tab" id="tab-premio" aria-selected="false" aria-controls="view-premio" data-tab="premio">Premio</button>
+      <button class="tab" role="tab" id="tab-ajustes" aria-selected="false" aria-controls="view-ajustes" data-tab="ajustes">Pago y contraseña</button>
+    </nav>
+
+    <!-- 1. Registros -->
+    <section class="panel view" id="view-registros" role="tabpanel" aria-labelledby="tab-registros">
+      <div class="stats" id="summary" role="group" aria-label="Filtrar por estado">
+        <button type="button" class="stat on" data-filter="todos"><b id="sTotal">0</b><span>Registros</span></button>
+        <button type="button" class="stat warn" data-filter="pendiente_verificacion"><b id="sPending">0</b><span>Por revisar</span></button>
+        <button type="button" class="stat ok" data-filter="aceptada"><b id="sAccepted">0</b><span>Aceptados</span></button>
+        <button type="button" class="stat bad" data-filter="rechazada"><b id="sRejected">0</b><span>Rechazados</span></button>
+        <div class="stat money"><b id="sMoney">$ 0</b><span>Recaudo aceptado</span></div>
+      </div>
+
+      <div class="controls">
+        <div class="control-group">
+          <label class="inline">Día <input type="date" id="dayPicker"></label>
+          <button type="button" class="secondary" id="btnToday">Hoy</button>
+          <button type="button" class="secondary" id="btnAllDays">Todos los días</button>
+        </div>
+        <label class="search"><span class="sr-only">Buscar</span><input type="search" id="search" placeholder="Buscar por nombre, número, celular o usuario" autocomplete="off"></label>
+        <div class="control-group">
+          <button type="button" class="secondary" id="refresh">Actualizar</button>
+          <details class="menu" id="exportMenu">
+            <summary class="primary-sm">Descargar lista</summary>
+            <div class="menu-body">
+              <button type="button" id="exportXlsx">Excel (.xlsx)</button>
+              <button type="button" id="exportCsv">CSV</button>
+              <p class="small">Solo incluye participaciones aceptadas del día elegido.</p>
+            </div>
+          </details>
+        </div>
+      </div>
+
+      <p class="hint" id="hint">Abre cada comprobante, confirma la transferencia y marca el pago como verificado antes de las 7:00 p. m.</p>
+
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Hora</th><th>Participante</th><th>Número</th><th>Estado</th><th>Acciones</th></tr></thead>
+          <tbody id="rows"><tr><td colspan="5">Cargando…</td></tr></tbody>
+        </table>
+      </div>
+      <p id="tableMessage" class="small"></p>
+    </section>
+
+    <!-- 2. Premio -->
+    <section class="panel view hidden" id="view-premio" role="tabpanel" aria-labelledby="tab-premio">
+      <h2>Premio del sorteo</h2>
+      <p class="small">Lo que configures aquí se muestra en la parte de arriba de la página pública.</p>
+      <form id="prizeForm" class="prize-form">
+        <div class="prize-grid">
+          <div class="prize-media">
+            <div class="prize-preview" id="prizePreviewBox"><img id="prizePreview" alt="Imagen del premio" class="hidden"><span id="prizeNoImage">Sin imagen</span></div>
+            <label class="file-btn secondary">Subir imagen<input type="file" id="prizeImage" accept="image/jpeg,image/png" hidden></label>
+            <button type="button" class="secondary" id="prizeImageRemove">Quitar imagen</button>
+            <p id="prizeImageMessage" class="notice" role="status"></p>
+          </div>
+          <div class="prize-fields">
+            <label>Nombre del premio<input name="name" maxlength="80" placeholder="Ej. Audífonos Bluetooth" required></label>
+            <label>Descripción (opcional)<input name="description" maxlength="300" placeholder="Ej. Nuevos, con garantía"></label>
+            <label>¿Qué recibe el ganador?
+              <select name="mode">
+                <option value="premio">Solo el premio</option>
+                <option value="dinero">Solo dinero</option>
+                <option value="ambos">El ganador elige: premio o dinero</option>
+              </select>
+            </label>
+            <label id="cashLabel">Valor en dinero (COP)<input name="cashCop" type="number" inputmode="numeric" min="1000" step="1000" placeholder="150000"></label>
+            <button class="primary">Guardar premio</button>
+            <p id="prizeMessage" class="notice" role="status"></p>
+          </div>
+        </div>
       </form>
-      <form id="passwordForm">
-        <h3>Cambiar contraseña</h3>
-        <label>Contraseña actual<input name="currentPassword" type="password" autocomplete="current-password" required></label>
-        <label>Nueva contraseña (mínimo 10 caracteres)<input name="newPassword" type="password" autocomplete="new-password" minlength="10" required></label>
-        <label>Repite la nueva contraseña<input name="confirmPassword" type="password" autocomplete="new-password" minlength="10" required></label>
-        <button class="primary">Cambiar contraseña</button>
-        <p id="passwordMessage" class="notice" role="status"></p>
-      </form>
-    </div>
-  </section>
-  <section class="panel hidden" id="dashboard">
-    <div class="toolbar"><h2>Registros</h2><button id="logout" class="secondary">Cerrar sesión</button></div>
-    <p id="adminStatus" class="notice"></p>
-    <div class="summary" id="summary"></div>
-    <div class="toolbar wrap-controls">
-      <label class="inline">Jornada <input type="date" id="dayPicker"></label>
-      <button id="allRecords" class="secondary">Todos los registros</button>
-      <button id="todayRecords" class="primary">Ver jornada</button>
-      <button id="exportXlsx" class="primary">Exportar Excel de la jornada (.xlsx)</button>
-      <button id="exportCsv" class="secondary">Exportar CSV de la jornada</button>
-      <button id="refresh" class="secondary">Actualizar</button>
-    </div>
-    <p class="small">La vista diaria muestra registros enviados hoy. Solo las inscripciones con pago verificado antes de las 7:00 p. m. quedan aceptadas para la jornada de hoy. Las pendientes al cierre no participan ni se trasladan. El CSV exporta únicamente participaciones aceptadas. Se muestran hasta 1.000 registros por consulta.</p>
-    <div class="table-wrap"><table><thead><tr><th>ID</th><th>Fecha / hora Bogotá</th><th>Nombre</th><th>Red social</th><th>Celular</th><th>Número</th><th>Pago</th><th>Participación</th><th>Comprobante</th></tr></thead><tbody id="rows"><tr><td colspan="9">Inicia sesión para ver registros.</td></tr></tbody></table></div>
-    <p id="tableMessage" class="notice"></p>
-  </section>
+    </section>
+
+    <!-- 3. Pago y contraseña -->
+    <section class="panel view hidden" id="view-ajustes" role="tabpanel" aria-labelledby="tab-ajustes">
+      <div class="two-col">
+        <form id="brebForm">
+          <h2>Datos de pago</h2>
+          <p class="small">Es lo que ven tus seguidores para hacer el aporte.</p>
+          <label>Nombre del método<input name="brebLabel" maxlength="60" placeholder="Llave Bre-B" required></label>
+          <label>Llave o dato de pago<input name="brebValue" maxlength="120" placeholder="@mi-llave" required></label>
+          <button class="primary">Guardar datos de pago</button>
+          <p id="brebMessage" class="notice" role="status"></p>
+        </form>
+        <form id="passwordForm">
+          <h2>Cambiar contraseña</h2>
+          <p class="small">Al cambiarla se cierran las demás sesiones abiertas.</p>
+          <label>Contraseña actual<input name="currentPassword" type="password" autocomplete="current-password" required></label>
+          <label>Nueva contraseña (mínimo 10 caracteres)<input name="newPassword" type="password" autocomplete="new-password" minlength="10" required></label>
+          <label>Repite la nueva contraseña<input name="confirmPassword" type="password" autocomplete="new-password" minlength="10" required></label>
+          <button class="primary">Cambiar contraseña</button>
+          <p id="passwordMessage" class="notice" role="status"></p>
+        </form>
+      </div>
+    </section>
+  </div>
 </main>
+
+<!-- Visor de comprobante -->
+<div class="modal hidden" id="receiptModal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+  <div class="modal-card">
+    <div class="modal-head">
+      <div><h2 id="modalTitle"></h2><p class="small" id="modalSub"></p></div>
+      <button type="button" class="secondary" id="modalClose" aria-label="Cerrar">Cerrar</button>
+    </div>
+    <div class="modal-body" id="modalBody"></div>
+    <div class="modal-actions" id="modalActions"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
 <footer><div class="wrap">Los comprobantes solo son accesibles para una sesión administrativa autorizada.</div></footer>
 </body>
 </html>
