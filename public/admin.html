@@ -13,18 +13,40 @@
     <h2>Iniciar sesión</h2>
     <form id="loginForm"><label>Contraseña administrativa<input name="password" type="password" autocomplete="current-password" required></label><button class="primary">Entrar</button><p id="loginMessage" class="notice" role="status"></p></form>
   </section>
+  <section class="panel hidden" id="settingsPanel">
+    <h2>Configuración</h2>
+    <div class="two-col">
+      <form id="brebForm">
+        <h3>Datos de pago (se muestran al público)</h3>
+        <label>Nombre del método<input name="brebLabel" maxlength="60" placeholder="Llave Bre-B" required></label>
+        <label>Llave / dato de pago<input name="brebValue" maxlength="120" placeholder="@mi-llave" required></label>
+        <button class="primary">Guardar datos de pago</button>
+        <p id="brebMessage" class="notice" role="status"></p>
+      </form>
+      <form id="passwordForm">
+        <h3>Cambiar contraseña</h3>
+        <label>Contraseña actual<input name="currentPassword" type="password" autocomplete="current-password" required></label>
+        <label>Nueva contraseña (mínimo 10 caracteres)<input name="newPassword" type="password" autocomplete="new-password" minlength="10" required></label>
+        <label>Repite la nueva contraseña<input name="confirmPassword" type="password" autocomplete="new-password" minlength="10" required></label>
+        <button class="primary">Cambiar contraseña</button>
+        <p id="passwordMessage" class="notice" role="status"></p>
+      </form>
+    </div>
+  </section>
   <section class="panel hidden" id="dashboard">
     <div class="toolbar"><h2>Registros</h2><button id="logout" class="secondary">Cerrar sesión</button></div>
     <p id="adminStatus" class="notice"></p>
+    <div class="summary" id="summary"></div>
     <div class="toolbar wrap-controls">
+      <label class="inline">Jornada <input type="date" id="dayPicker"></label>
       <button id="allRecords" class="secondary">Todos los registros</button>
-      <button id="todayRecords" class="primary">Hoy antes de las 7:00 p. m.</button>
-      <button id="exportXlsx" class="primary">Exportar Excel del día (.xlsx)</button>
-      <button id="exportCsv" class="secondary">Exportar CSV del día</button>
+      <button id="todayRecords" class="primary">Ver jornada</button>
+      <button id="exportXlsx" class="primary">Exportar Excel de la jornada (.xlsx)</button>
+      <button id="exportCsv" class="secondary">Exportar CSV de la jornada</button>
       <button id="refresh" class="secondary">Actualizar</button>
     </div>
     <p class="small">La vista diaria muestra registros enviados hoy. Solo las inscripciones con pago verificado antes de las 7:00 p. m. quedan aceptadas para la jornada de hoy. Las pendientes al cierre no participan ni se trasladan. El CSV exporta únicamente participaciones aceptadas. Se muestran hasta 1.000 registros por consulta.</p>
-    <div class="table-wrap"><table><thead><tr><th>ID</th><th>Fecha / hora Bogotá</th><th>Nombre</th><th>Red social</th><th>Celular</th><th>Número</th><th>Pago</th><th>Participación</th><th>Comprobante</th></tr></thead><tbody id="rows"><tr><td colspan="8">Inicia sesión para ver registros.</td></tr></tbody></table></div>
+    <div class="table-wrap"><table><thead><tr><th>ID</th><th>Fecha / hora Bogotá</th><th>Nombre</th><th>Red social</th><th>Celular</th><th>Número</th><th>Pago</th><th>Participación</th><th>Comprobante</th></tr></thead><tbody id="rows"><tr><td colspan="9">Inicia sesión para ver registros.</td></tr></tbody></table></div>
     <p id="tableMessage" class="notice"></p>
   </section>
 </main>

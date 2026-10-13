@@ -4,7 +4,10 @@ const loginForm = document.querySelector('#loginForm');
 const loginMessage = document.querySelector('#loginMessage');
 const rows = document.querySelector('#rows');
 const tableMessage = document.querySelector('#tableMessage');
-let todayOnly = false;
+let dayMode = false;
+const dayPicker = document.querySelector('#dayPicker');
+const LABELS = { aceptada: 'Aceptada', rechazada: 'Rechazada', pendiente_verificacion: 'Pendiente' };
+const cop = n => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n);
 
 async function api(url, options = {}) {
   const res = await fetch(url, { credentials: 'same-origin', ...options });
@@ -12,7 +15,9 @@ async function api(url, options = {}) {
   if (!res.ok) throw new Error(data?.error || 'Error en la solicitud.');
   return data;
 }
+const settingsPanel = document.querySelector('#settingsPanel');
 function showDashboard(show) {
+  settingsPanel.classList.toggle('hidden', !show);
   loginPanel.classList.toggle('hidden', show);
   dashboard.classList.toggle('hidden', !show);
 }
@@ -23,7 +28,7 @@ async function checkSession() {
   try {
     const data = await api('/api/admin/me');
     showDashboard(data.authenticated);
-    if (data.authenticated) await loadRecords();
+    if (data.authenticated) { await loadSettings(); await loadRecords(); }
   } catch { showDashboard(false); }
 }
 loginForm.addEventListener('submit', async e => {
@@ -33,24 +38,37 @@ loginForm.addEventListener('submit', async e => {
     await api('/api/admin/login', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({password: loginForm.password.value}) });
     loginForm.reset();
     showDashboard(true);
+    await loadSettings();
     await loadRecords();
   } catch (err) { loginMessage.textContent = err.message; }
 });
 document.querySelector('#logout').addEventListener('click', async () => {
   try { await api('/api/admin/logout', { method:'POST' }); } finally { showDashboard(false); }
 });
-document.querySelector('#allRecords').addEventListener('click', () => { todayOnly = false; loadRecords(); });
-document.querySelector('#todayRecords').addEventListener('click', () => { todayOnly = true; loadRecords(); });
+document.querySelector('#allRecords').addEventListener('click', () => { dayMode = false; loadRecords(); });
+document.querySelector('#todayRecords').addEventListener('click', () => { dayMode = true; loadRecords(); });
+dayPicker.addEventListener('change', () => { dayMode = true; loadRecords(); });
 document.querySelector('#refresh').addEventListener('click', loadRecords);
-document.querySelector('#exportCsv').addEventListener('click', () => { window.location.href = '/api/admin/export.csv'; });
-document.querySelector('#exportXlsx').addEventListener('click', () => { window.location.href = '/api/admin/export.xlsx'; });
+document.querySelector('#exportCsv').addEventListener('click', () => { window.location.href = '/api/admin/export.csv' + dateQuery('?'); });
+document.querySelector('#exportXlsx').addEventListener('click', () => { window.location.href = '/api/admin/export.xlsx' + dateQuery('?'); });
 
+function dateQuery(prefix) {
+  return dayMode && dayPicker.value ? `${prefix}date=${encodeURIComponent(dayPicker.value)}` : '';
+}
 async function loadRecords() {
-  rows.innerHTML = '<tr><td colspan="9">Cargando…</td></tr>'
+  rows.innerHTML = '<tr><td colspan="9">Cargando…</td></tr>';
   tableMessage.textContent = '';
   try {
-    const data = await api(`/api/admin/registrations${todayOnly ? '?today=1' : ''}`);
+    const data = await api(`/api/admin/registrations${dayMode ? (dayPicker.value ? dateQuery('?') : '?today=1') : ''}`);
     const s = data.status;
+    if (!dayPicker.value) dayPicker.value = s.date;
+    const sm = data.summary;
+    document.querySelector('#summary').innerHTML =
+      `<div><b>${sm.total}</b><span>Registros${data.date ? ' · ' + esc(data.date) : ''}</span></div>` +
+      `<div><b>${sm.accepted}</b><span>Aceptados</span></div>` +
+      `<div><b>${sm.pending}</b><span>Pendientes</span></div>` +
+      `<div><b>${sm.rejected}</b><span>Rechazados</span></div>` +
+      `<div><b>${esc(cop(sm.acceptedAmountCop))}</b><span>Recaudo aceptado</span></div>`;
     document.querySelector('#adminStatus').textContent =
       `Fecha Bogotá: ${s.date} · Hora del servidor: ${s.time} · ${s.closed ? 'Cierre de hoy realizado' : 'Recepción abierta hasta las 19:00'}`;
     if (!data.records.length) {
@@ -62,7 +80,7 @@ async function loadRecords() {
       <td>${esc(r.createdDateBogota)} ${esc(r.createdTimeBogota)}${r.receivedAfterClose ? '<br><span class="tag">Después del cierre</span>' : ''}<br><span class="small">Día asignado: ${esc(r.assignedDate)}</span></td>
       <td>${esc(r.fullName)}</td><td>${esc(r.socialUser)}</td><td>${esc(r.phone)}</td><td class="number">${esc(r.number)}</td>
       <td><select data-payment="${esc(r.id)}"><option value="pendiente_revision" ${r.paymentStatus==='pendiente_revision'?'selected':''}>Pendiente</option><option value="verificado" ${r.paymentStatus==='verificado'?'selected':''}>Verificado</option><option value="rechazado" ${r.paymentStatus==='rechazado'?'selected':''}>Rechazado</option></select></td>
-      <td>${esc(r.participationStatus || 'pendiente_verificacion')}</td><td><button class="secondary small-btn" data-receipt="${esc(r.id)}">Ver</button></td>
+      <td>${esc(LABELS[r.participationStatus] || r.participationStatus || 'Pendiente')}</td><td><button class="secondary small-btn" data-receipt="${esc(r.id)}">Ver</button></td>
     </tr>`).join('');
     rows.querySelectorAll('[data-receipt]').forEach(btn => btn.addEventListener('click', () => viewReceipt(btn.dataset.receipt)));
     rows.querySelectorAll('[data-payment]').forEach(sel => sel.addEventListener('change', () => updatePayment(sel.dataset.payment, sel.value)));
@@ -72,11 +90,8 @@ async function loadRecords() {
     tableMessage.textContent = err.message;
   }
 }
-async function viewReceipt(id) {
-  try {
-    const data = await api(`/api/admin/receipt/${encodeURIComponent(id)}`);
-    window.open(data.url, '_blank', 'noopener,noreferrer');
-  } catch (err) { alert(err.message); }
+function viewReceipt(id) {
+  window.open(`/api/admin/receipt/${encodeURIComponent(id)}`, '_blank', 'noopener');
 }
 async function updatePayment(id, paymentStatus) {
   try {
@@ -84,9 +99,40 @@ async function updatePayment(id, paymentStatus) {
       method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({paymentStatus})
     });
     tableMessage.textContent = 'Estado del pago actualizado.';
+    await loadRecords();
   } catch (err) {
     tableMessage.textContent = err.message;
     await loadRecords();
   }
 }
+const brebForm = document.querySelector('#brebForm');
+const passwordForm = document.querySelector('#passwordForm');
+function flash(el, text, kind) { el.textContent = text; el.className = `notice ${kind || ''}`; }
+async function loadSettings() {
+  try {
+    const st = await api('/api/admin/settings');
+    brebForm.brebLabel.value = st.brebLabel;
+    brebForm.brebValue.value = st.brebValue;
+  } catch (err) { flash(document.querySelector('#brebMessage'), err.message, 'error'); }
+}
+brebForm.addEventListener('submit', async e => {
+  e.preventDefault();
+  const msg = document.querySelector('#brebMessage');
+  try {
+    await api('/api/admin/settings', { method: 'PUT', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ brebLabel: brebForm.brebLabel.value, brebValue: brebForm.brebValue.value }) });
+    flash(msg, 'Datos de pago guardados. Ya se ven en la página pública.', 'success');
+  } catch (err) { flash(msg, err.message, 'error'); }
+});
+passwordForm.addEventListener('submit', async e => {
+  e.preventDefault();
+  const msg = document.querySelector('#passwordMessage');
+  if (passwordForm.newPassword.value !== passwordForm.confirmPassword.value) return flash(msg, 'Las contraseñas nuevas no coinciden.', 'error');
+  try {
+    await api('/api/admin/password', { method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ currentPassword: passwordForm.currentPassword.value, newPassword: passwordForm.newPassword.value }) });
+    passwordForm.reset();
+    flash(msg, 'Contraseña actualizada. Las demás sesiones abiertas se cerraron.', 'success');
+  } catch (err) { flash(msg, err.message, 'error'); }
+});
 checkSession();
