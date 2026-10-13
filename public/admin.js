@@ -76,11 +76,11 @@ async function loadRecords() {
       return;
     }
     rows.innerHTML = data.records.map(r => `<tr>
-      <td title="${esc(r.id)}">${esc(r.id.slice(0,8))}…</td>
-      <td>${esc(r.createdDateBogota)} ${esc(r.createdTimeBogota)}${r.receivedAfterClose ? '<br><span class="tag">Después del cierre</span>' : ''}<br><span class="small">Día asignado: ${esc(r.assignedDate)}</span></td>
-      <td>${esc(r.fullName)}</td><td>${esc(r.socialUser)}</td><td>${esc(r.phone)}</td><td class="number">${esc(r.number)}</td>
-      <td><select data-payment="${esc(r.id)}"><option value="pendiente_revision" ${r.paymentStatus==='pendiente_revision'?'selected':''}>Pendiente</option><option value="verificado" ${r.paymentStatus==='verificado'?'selected':''}>Verificado</option><option value="rechazado" ${r.paymentStatus==='rechazado'?'selected':''}>Rechazado</option></select></td>
-      <td>${esc(LABELS[r.participationStatus] || r.participationStatus || 'Pendiente')}</td><td><button class="secondary small-btn" data-receipt="${esc(r.id)}">Ver</button></td>
+      <td data-label="ID" title="${esc(r.id)}">${esc(r.id.slice(0,8))}…</td>
+      <td data-label="Fecha / hora">${esc(r.createdDateBogota)} ${esc(r.createdTimeBogota)}${r.receivedAfterClose ? '<br><span class="tag">Después del cierre</span>' : ''}<br><span class="small">Día asignado: ${esc(r.assignedDate)}</span></td>
+      <td data-label="Nombre">${esc(r.fullName)}</td><td data-label="Red social">${esc(r.socialUser)}</td><td data-label="Celular">${esc(r.phone)}</td><td data-label="Número" class="number">${esc(r.number)}</td>
+      <td data-label="Pago"><select data-payment="${esc(r.id)}"><option value="pendiente_revision" ${r.paymentStatus==='pendiente_revision'?'selected':''}>Pendiente</option><option value="verificado" ${r.paymentStatus==='verificado'?'selected':''}>Verificado</option><option value="rechazado" ${r.paymentStatus==='rechazado'?'selected':''}>Rechazado</option></select></td>
+      <td data-label="Participación">${esc(LABELS[r.participationStatus] || r.participationStatus || 'Pendiente')}</td><td data-label="Comprobante"><button class="secondary small-btn" data-receipt="${esc(r.id)}">Ver</button></td>
     </tr>`).join('');
     rows.querySelectorAll('[data-receipt]').forEach(btn => btn.addEventListener('click', () => viewReceipt(btn.dataset.receipt)));
     rows.querySelectorAll('[data-payment]').forEach(sel => sel.addEventListener('change', () => updatePayment(sel.dataset.payment, sel.value)));

@@ -4,41 +4,63 @@
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#123b72">
   <title>Bono de Contribución Diaria</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%231a1446'/%3E%3Ctext x='16' y='23' font-size='20' font-weight='900' text-anchor='middle' fill='%23ffc82e' font-family='Arial'%3EB%3C/text%3E%3C/svg%3E">
   <link rel="stylesheet" href="/styles.css">
   <script defer src="/app.js"></script>
 </head>
 <body>
-  <header class="top"><div class="wrap"><span class="brand">BONO <b>DIARIO</b></span><a href="/admin">Administración</a></div></header>
+  <header class="top"><div class="wrap"><span class="brand">Bono <b>Diario</b></span><a href="/admin">Administración</a></div></header>
   <main class="wrap main">
     <section class="hero">
-      <p class="eyebrow">PARTICIPACIÓN DIARIA</p>
       <h1>Bono de Contribución</h1>
-      <p>Tu número participa únicamente en la jornada de hoy. Debes enviar el comprobante y tener el pago verificado antes de las 7:00 p. m. No hay participación automática en jornadas futuras.</p>
-      <div class="price">$5.000 <small>COP por registro</small></div>
+      <p>Tu número participa solo en la jornada de hoy. Envía el comprobante y espera la verificación de tu pago antes de las 7:00 p. m.</p>
+      <div class="hero-row">
+        <div class="price">$5.000 <small>COP por registro</small></div>
+        <div class="clock" id="clock" role="timer" aria-live="off">
+          <span class="clock-label" id="clockLabel">Tiempo para el cierre</span>
+          <span class="clock-time" id="countdown">--:--:--</span>
+        </div>
+      </div>
       <div id="status" class="notice" role="status">Consultando hora de cierre…</div>
     </section>
+
+    <ol class="steps">
+      <li>Transfiere $5.000 a la llave de pago</li>
+      <li>Escribe tu número de 5 cifras y sube el comprobante</li>
+      <li>Verificamos tu pago antes de las 7:00 p. m. y tu número queda aceptado</li>
+    </ol>
+
     <section class="panel">
       <h2>Datos de pago</h2>
-      <p>Realiza la transferencia manual y adjunta la captura o el PDF del comprobante. El envío del formulario no confirma por sí solo la participación: el pago debe verificarse antes del cierre de hoy.</p>
+      <p>Haz la transferencia desde tu app bancaria. Enviar el formulario no confirma tu participación: el pago debe quedar verificado antes del cierre.</p>
       <div class="payment">
         <span id="brebLabel">Llave Bre-B</span>
         <strong id="brebValue">Cargando…</strong>
         <button type="button" class="secondary" id="copyKey">Copiar llave</button>
       </div>
-      <p class="small">Verifica el destinatario en tu aplicación bancaria antes de transferir. Si el pago no se verifica antes de las 7:00 p. m., el registro no participa hoy y no se pasa al día siguiente. Para otra jornada debes hacer un nuevo registro y pago.</p>
+      <p class="small">Confirma el destinatario en tu app antes de transferir. Si el pago no se verifica antes de las 7:00 p. m., el registro no participa hoy ni pasa al día siguiente: para otra jornada necesitas un nuevo registro y pago.</p>
     </section>
+
     <section class="panel">
-      <h2>Formulario de registro</h2>
+      <h2>Registra tu número</h2>
       <form id="registerForm">
+        <div class="ticket" aria-hidden="true">
+          <div class="ticket-main">
+            <small>Tu número de hoy</small>
+            <div class="digits" id="digits"></div>
+          </div>
+          <div class="ticket-stub"><span><b>$5.000</b>bono diario</span></div>
+        </div>
+        <label>Número de 5 cifras
+          <input name="number" inputmode="numeric" pattern="[0-9]{5}" maxlength="5" minlength="5" placeholder="00523" aria-describedby="numberHelp" autocomplete="off" required>
+          <span class="small" id="numberHelp">Puedes empezar con ceros. Varias personas pueden elegir el mismo número.</span>
+        </label>
         <label>Nombre completo<input name="fullName" autocomplete="name" minlength="3" maxlength="120" required></label>
         <label>Usuario de red social<input name="socialUser" placeholder="@usuario" maxlength="80" required></label>
-        <label>Número de celular<input name="phone" type="tel" inputmode="numeric" pattern="[0-9]{10}" maxlength="10" minlength="10" placeholder="3001234567" required></label>
-        <label>Número de 5 cifras
-          <input name="number" inputmode="numeric" pattern="[0-9]{5}" maxlength="5" minlength="5" placeholder="00523" aria-describedby="numberHelp" required>
-          <span class="small" id="numberHelp">Se permiten ceros a la izquierda. Los números repetidos pueden registrarse por varias personas.</span>
-        </label>
-        <label>Comprobante de pago (JPG, PNG o PDF; las imágenes se reducen automáticamente)
+        <label>Número de celular<input name="phone" type="tel" inputmode="numeric" pattern="[0-9]{10}" maxlength="10" minlength="10" placeholder="3001234567" autocomplete="tel-national" required></label>
+        <label>Comprobante de pago (JPG, PNG o PDF)
           <input name="receipt" type="file" accept=".jpg,.jpeg,.png,.pdf,image/jpeg,image/png,application/pdf" required>
+          <span class="small">Las imágenes se reducen automáticamente. Un PDF debe pesar menos de 780 KB.</span>
         </label>
         <label class="terms"><input name="acceptedTerms" type="checkbox" required>
           <span>Acepto que este es un bono de contribución voluntaria, certifico que soy mayor de edad y estoy de acuerdo con los términos del incentivo diario. Entiendo que mi registro solo es válido para la jornada de hoy si mi pago se verifica antes de las 7:00 PM; no se traslada a días posteriores y debo registrarme y pagar nuevamente para otra jornada. En caso de empate, recibiré mi premio completo sin divisiones.</span>
@@ -49,6 +71,22 @@
     </section>
     <p class="legal small">Antes de operar, publica términos completos, reglas de verificación y fuente oficial del resultado, y verifica las autorizaciones legales aplicables en Colombia. No se garantiza un premio por el solo envío del formulario.</p>
   </main>
+
+  <canvas id="confetti" aria-hidden="true"></canvas>
+  <div class="success-overlay hidden" id="success" role="dialog" aria-modal="true" aria-labelledby="successTitle">
+    <div class="thanks">
+      <svg class="check" viewBox="0 0 96 96" aria-hidden="true">
+        <circle class="ring" cx="48" cy="48" r="44"/>
+        <path class="tick" d="M28 49 l14 14 l27 -30"/>
+      </svg>
+      <h2 id="successTitle">¡Muchas gracias por tu apoyo!</h2>
+      <p class="luck">Buena suerte en el sorteo 🍀</p>
+      <div class="digits" id="thanksDigits" aria-label="Tu número"></div>
+      <p class="note">Recibimos tu registro. Tu número queda aceptado cuando verifiquemos el pago, antes de las 7:00 p. m. de hoy.</p>
+      <p class="code" id="thanksCode"></p>
+      <button type="button" class="primary" id="closeSuccess">Listo</button>
+    </div>
+  </div>
   <footer><div class="wrap">Bono de Contribución Diaria · Hora de referencia: Colombia (Bogotá)</div></footer>
 </body>
 </html>
