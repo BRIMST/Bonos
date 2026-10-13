@@ -87,3 +87,7 @@ Requiere Node.js 20 o superior.
 - `ADMIN_PASSWORD` solo se usa como contraseña inicial hasta que la cambies. `BREB_LABEL` y `BREB_VALUE` son opcionales.
 - Al cambiar la contraseña se cierran las demás sesiones abiertas.
 - `SESSION_SECRET`, `FIREBASE_*` siguen siendo variables de entorno (son técnicas, no deben editarse desde la web).
+
+## Diseño (v1.4)
+
+Diseño responsive para teléfono, tableta y escritorio: boleto con los 5 dígitos en vivo, cuenta regresiva al cierre de las 7:00 p. m. y, tras enviar el registro, una tarjeta animada con confeti: «¡Muchas gracias por tu apoyo! Buena suerte en el sorteo». Respeta la preferencia de «reducir movimiento» del dispositivo. En el admin, la tabla pasa a tarjetas en el teléfono.
