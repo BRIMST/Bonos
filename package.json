@@ -1,0 +1,25 @@
+{
+  "name": "bono-contribucion-diaria-vercel",
+  "version": "1.1.0",
+  "private": true,
+  "description": "Bono de contribución diaria desplegable en Vercel con Firebase",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "cookie-parser": "^1.4.7",
+    "express": "^4.21.2",
+    "express-rate-limit": "^7.5.0",
+    "firebase-admin": "^13.0.2",
+    "helmet": "^8.0.0",
+    "multer": "^1.4.5-lts.1",
+    "dotenv": "^16.4.7",
+    "exceljs": "^4.4.0",
+    "cookie-session": "^2.1.0"
+  }
+}
