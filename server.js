@@ -16,20 +16,52 @@ const TZ = 'America/Bogota';
 const PRICE_COP = 5000;
 const CLOSE_HOUR = 19;
 
-if (!process.env.ADMIN_PASSWORD || !process.env.SESSION_SECRET) {
-  console.error('Configura ADMIN_PASSWORD y SESSION_SECRET en .env');
-  process.exit(1);
-}
-if (!process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
-  console.error('Configura FIREBASE_SERVICE_ACCOUNT_JSON en .env');
-  process.exit(1);
+// ---- Configuración ----
+// Si algo falta o está mal, el servidor NO se cae: responde 500 con un mensaje que indica qué corregir
+// (solo nombres de variables, nunca valores secretos).
+function parseServiceAccount(raw) {
+  let t = String(raw || '').trim();
+  if (!t) throw new Error('FIREBASE_SERVICE_ACCOUNT_JSON está vacía.');
+  // Permite comillas externas y también el JSON codificado en base64.
+  if ((t.startsWith("'") && t.endsWith("'")) || (t.startsWith('"{') && t.endsWith('}"'))) t = t.slice(1, -1);
+  if (!t.startsWith('{')) {
+    try { t = Buffer.from(t, 'base64').toString('utf8').trim(); } catch { /* se informa abajo */ }
+  }
+  const attempts = [t];
+  // Saltos de línea reales dentro de textos (pasa al pegar la clave privada): se escapan.
+  let out = '', inStr = false, esc = false;
+  for (const ch of t) {
+    if (inStr && !esc && (ch === '\n' || ch === '\r')) { if (ch === '\n') out += '\\n'; continue; }
+    out += ch;
+    if (esc) esc = false; else if (ch === '\\') esc = true; else if (ch === '"') inStr = !inStr;
+  }
+  attempts.push(out);
+  let parsed = null;
+  for (const a of attempts) { try { parsed = JSON.parse(a); break; } catch { /* siguiente intento */ } }
+  if (!parsed || typeof parsed !== 'object') throw new Error('FIREBASE_SERVICE_ACCOUNT_JSON no es un JSON válido. Pega el contenido COMPLETO del archivo descargado de Firebase, empezando por { y terminando en }.');
+  for (const k of ['project_id', 'client_email', 'private_key']) {
+    if (!parsed[k]) throw new Error(`Al JSON de Firebase le falta el campo "${k}". Descarga de nuevo la clave privada.`);
+  }
+  parsed.private_key = String(parsed.private_key).replace(/\\n/g, '\n');
+  return parsed;
 }
 
-const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount)
+let db = null;
+let initError = null;
+try {
+  const missing = ['ADMIN_PASSWORD', 'SESSION_SECRET', 'FIREBASE_SERVICE_ACCOUNT_JSON'].filter(k => !process.env[k]);
+  if (missing.length) throw new Error(`Faltan variables de entorno en Vercel: ${missing.join(', ')}. Agrégalas en Settings → Environment Variables y haz Redeploy.`);
+  admin.initializeApp({ credential: admin.credential.cert(parseServiceAccount(process.env.FIREBASE_SERVICE_ACCOUNT_JSON)) });
+  db = admin.firestore();
+} catch (err) {
+  initError = err.message;
+  console.error('Error de configuración:', initError);
+}
+app.locals.initError = initError;
+app.use((_req, res, next) => {
+  if (!initError) return next();
+  res.status(500).json({ error: `Error de configuración del servidor. ${initError}` });
 });
-const db = admin.firestore();
 // Los comprobantes se guardan en Firestore (colección 'receipts'); un documento admite máx. ~1 MiB.
 const MAX_RECEIPT_BYTES = 800 * 1024;
 
@@ -51,7 +83,7 @@ app.use(express.json({ limit: '30kb' }));
 app.use(express.urlencoded({ extended: false, limit: '10kb' }));
 app.use(cookieSession({
   name: 'bono_admin_session',
-  keys: [process.env.SESSION_SECRET],
+  keys: [process.env.SESSION_SECRET || 'sin-configurar'],
   httpOnly: true,
   secure: process.env.NODE_ENV === 'production',
   sameSite: 'strict',
@@ -101,10 +133,39 @@ function currentStatus(now = new Date()) {
 }
 // Configuración editable desde el panel (llave Bre-B y contraseña), guardada en Firestore.
 // Si aún no existe, se usan las variables de entorno como valores iniciales.
-const settingsRef = db.collection('settings').doc('app');
+const settingsRef = {
+  get: () => db.collection('settings').doc('app').get(),
+  set: (...args) => db.collection('settings').doc('app').set(...args)
+};
 async function getSettings() {
   const snap = await settingsRef.get();
   return snap.exists ? snap.data() : {};
+}
+const PRIZE_MODES = ['premio', 'dinero', 'ambos'];
+function publicPrize(settings) {
+  if (!settings.prizeName) return null;
+  return {
+    name: settings.prizeName,
+    description: settings.prizeDescription || '',
+    mode: PRIZE_MODES.includes(settings.prizeMode) ? settings.prizeMode : 'premio',
+    cashCop: settings.prizeCashCop || 0,
+    imageVersion: settings.prizeImageVersion || null
+  };
+}
+function publicWinner(settings) {
+  if (!settings.winnerNumber) return null;
+  return { number: settings.winnerNumber, date: settings.winnerDate || '', version: settings.winnerVersion || 0 };
+}
+function safeUrl(u) {
+  try {
+    const url = new URL(String(u || '').trim());
+    return ['http:', 'https:'].includes(url.protocol) ? url.href.slice(0, 300) : '';
+  } catch { return ''; }
+}
+function publicProfile(settings) {
+  const p = settings.profile;
+  if (!p || !p.name) return null;
+  return { name: p.name, bio: p.bio || '', links: Array.isArray(p.links) ? p.links.filter(l => l && l.url) : [] };
 }
 function hashPassword(password, salt = crypto.randomBytes(16).toString('hex')) {
   return { salt, hash: crypto.scryptSync(password, salt, 64).toString('hex') };
@@ -161,7 +222,8 @@ function publicRecord(d) {
     receivedAfterClose: d.receivedAfterClose, fullName: d.fullName,
     socialUser: d.socialUser, phone: d.phone, number: d.number,
     amountCop: d.amountCop, paymentStatus: d.paymentStatus,
-    participationStatus: d.participationStatus || 'pendiente_verificacion'
+    participationStatus: d.participationStatus || 'pendiente_verificacion',
+    duplicateReceipt: Boolean(d.duplicateReceipt)
   };
 }
 
@@ -173,7 +235,10 @@ app.get('/api/status', async (_req, res, next) => {
     date: status.date, time: status.time, closed: status.closed,
     closeTime: status.closeTime, price: PRICE_COP,
     brebLabel: settings.brebLabel || process.env.BREB_LABEL || 'Llave Bre-B',
-    brebValue: settings.brebValue || process.env.BREB_VALUE || 'Pago no configurado aún'
+    brebValue: settings.brebValue || process.env.BREB_VALUE || 'Pago no configurado aún',
+    prize: publicPrize(settings),
+    winner: publicWinner(settings),
+    profile: publicProfile(settings)
   });
   } catch (err) { next(err); }
 });
@@ -206,6 +271,8 @@ app.post('/api/register', registerLimiter, upload.single('receipt'), async (req,
       return res.status(413).json({ error: 'El comprobante pesa demasiado (máximo 800 KB). Usa una captura más liviana o un PDF más pequeño.' });
     }
     const id = crypto.randomUUID();
+    const receiptHash = crypto.createHash('sha256').update(req.file.buffer).digest('hex');
+    const sameReceipt = await db.collection('registrations').where('receiptHash', '==', receiptHash).limit(1).get();
 
     const record = {
       id,
@@ -221,6 +288,8 @@ app.post('/api/register', registerLimiter, upload.single('receipt'), async (req,
       number,
       amountCop: PRICE_COP,
       hasReceipt: true,
+      receiptHash,
+      duplicateReceipt: !sameReceipt.empty,
       receiptMimeType: req.file.mimetype,
       paymentStatus: 'pendiente_revision',
       participationStatus: 'pendiente_verificacion',
@@ -271,7 +340,10 @@ app.get('/api/admin/settings', requireAdmin, async (_req, res, next) => {
     const settings = await getSettings();
     res.json({
       brebLabel: settings.brebLabel || process.env.BREB_LABEL || 'Llave Bre-B',
-      brebValue: settings.brebValue || process.env.BREB_VALUE || ''
+      brebValue: settings.brebValue || process.env.BREB_VALUE || '',
+      winner: publicWinner(settings),
+      profile: publicProfile(settings) || { name: '', bio: '', links: [] },
+      prize: publicPrize(settings) || { name: '', description: '', mode: 'premio', cashCop: 0, imageVersion: null }
     });
   } catch (err) { next(err); }
 });
@@ -284,6 +356,126 @@ app.put('/api/admin/settings', requireAdmin, async (req, res, next) => {
     if (brebValue.length < 3) return res.status(400).json({ error: 'Escribe la llave o dato de pago.' });
     await settingsRef.set({ brebLabel, brebValue, updatedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
     res.json({ ok: true, brebLabel, brebValue });
+  } catch (err) { next(err); }
+});
+
+app.put('/api/admin/prize', requireAdmin, async (req, res, next) => {
+  try {
+    const name = cleanString(req.body.name, 80);
+    const description = cleanString(req.body.description, 300);
+    const mode = req.body.mode;
+    const cashCop = Math.round(Number(req.body.cashCop) || 0);
+    if (!PRIZE_MODES.includes(mode)) return res.status(400).json({ error: 'Elige si el premio es el artículo, dinero o que el ganador elija.' });
+    if (name.length < 2) return res.status(400).json({ error: 'Escribe el nombre del premio.' });
+    if ((mode === 'dinero' || mode === 'ambos') && (cashCop < 1000 || cashCop > 1000000000)) {
+      return res.status(400).json({ error: 'Escribe el valor en dinero (mínimo $1.000).' });
+    }
+    await settingsRef.set({
+      prizeName: name, prizeDescription: description, prizeMode: mode,
+      prizeCashCop: mode === 'premio' ? 0 : cashCop
+    }, { merge: true });
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+
+app.post('/api/admin/prize/image', requireAdmin, upload.single('image'), async (req, res, next) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'Selecciona una imagen.' });
+    if (!['image/jpeg', 'image/png'].includes(req.file.mimetype) || !matchesSignature(req.file.buffer, req.file.mimetype)) {
+      return res.status(400).json({ error: 'La imagen del premio debe ser JPG o PNG.' });
+    }
+    if (req.file.buffer.length > MAX_RECEIPT_BYTES) {
+      return res.status(413).json({ error: 'La imagen pesa demasiado (máximo 800 KB).' });
+    }
+    const version = Date.now();
+    await db.collection('prizeImage').doc('current').set({ mimeType: req.file.mimetype, data: req.file.buffer, version });
+    await settingsRef.set({ prizeImageVersion: version }, { merge: true });
+    res.json({ ok: true, version });
+  } catch (err) { next(err); }
+});
+
+app.delete('/api/admin/prize/image', requireAdmin, async (_req, res, next) => {
+  try {
+    await db.collection('prizeImage').doc('current').delete();
+    await settingsRef.set({ prizeImageVersion: null }, { merge: true });
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+
+app.get('/api/prize-image', async (_req, res, next) => {
+  try {
+    const snap = await db.collection('prizeImage').doc('current').get();
+    if (!snap.exists) return res.status(404).end();
+    const d = snap.data();
+    res.setHeader('Content-Type', d.mimeType);
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    res.send(Buffer.from(d.data));
+  } catch (err) { next(err); }
+});
+
+app.get('/api/winners', async (_req, res, next) => {
+  try {
+    const settings = await getSettings();
+    const snap = await db.collection('winners').orderBy('date', 'desc').limit(15).get();
+    const list = snap.docs.map(d => d.data()).filter(w => w.date !== settings.winnerDate).slice(0, 10)
+      .map(w => ({ date: w.date, number: w.number }));
+    res.setHeader('Cache-Control', 'public, max-age=60');
+    res.json({ winners: list });
+  } catch (err) { next(err); }
+});
+
+app.put('/api/admin/winner', requireAdmin, async (req, res, next) => {
+  try {
+    const number = cleanString(req.body.number, 5);
+    const date = validDate(req.body.date) ? req.body.date : currentStatus().date;
+    if (!validNumber(number)) return res.status(400).json({ error: 'El número ganador debe tener exactamente 5 cifras (por ejemplo 00523).' });
+    await settingsRef.set({ winnerNumber: number, winnerDate: date, winnerVersion: Date.now() }, { merge: true });
+    await db.collection('winners').doc(date).set({ date, number, publishedAtIso: new Date().toISOString() });
+    res.json({ ok: true, number, date });
+  } catch (err) { next(err); }
+});
+
+app.delete('/api/admin/winner', requireAdmin, async (_req, res, next) => {
+  try {
+    const current = await getSettings();
+    if (validDate(current.winnerDate)) await db.collection('winners').doc(current.winnerDate).delete();
+    await settingsRef.set({ winnerNumber: null, winnerDate: null, winnerVersion: null }, { merge: true });
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+
+app.put('/api/admin/profile', requireAdmin, async (req, res, next) => {
+  try {
+    const name = cleanString(req.body.name, 80);
+    const bio = cleanString(req.body.bio, 500);
+    const rawLinks = Array.isArray(req.body.links) ? req.body.links.slice(0, 5) : [];
+    const links = [];
+    for (const l of rawLinks) {
+      const label = cleanString(l && l.label, 40), url = safeUrl(l && l.url);
+      if (!label && !(l && l.url)) continue;
+      if (!label || !url) return res.status(400).json({ error: 'Cada enlace necesita un nombre y una dirección completa que empiece por https://' });
+      links.push({ label, url });
+    }
+    if (!name && (bio || links.length)) return res.status(400).json({ error: 'Escribe tu nombre para mostrar la sección "Quiénes somos".' });
+    await settingsRef.set({ profile: { name, bio, links } }, { merge: true });
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+
+app.get('/api/admin/qr.:fmt(png|svg)', requireAdmin, async (req, res, next) => {
+  try {
+    const QRCode = require('qrcode');
+    const host = req.headers['x-forwarded-host'] || req.headers.host;
+    const target = safeUrl(req.query.url) || `https://${host}/`;
+    const opts = { errorCorrectionLevel: 'H', margin: 2, color: { dark: '#1a1446', light: '#ffffff' } };
+    if (req.params.fmt === 'svg') {
+      res.setHeader('Content-Type', 'image/svg+xml');
+      if (req.query.download) res.setHeader('Content-Disposition', 'attachment; filename="qr-juntos-sumamos.svg"');
+      return res.send(await QRCode.toString(target, { ...opts, type: 'svg' }));
+    }
+    res.setHeader('Content-Type', 'image/png');
+    if (req.query.download) res.setHeader('Content-Disposition', 'attachment; filename="qr-juntos-sumamos.png"');
+    res.send(await QRCode.toBuffer(target, { ...opts, width: 1024 }));
   } catch (err) { next(err); }
 });
 
