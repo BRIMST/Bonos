@@ -26,7 +26,17 @@
 
   <!-- Panel -->
   <div id="app" class="hidden">
-    <p class="day-status" id="adminStatus"></p>
+    <section class="panel event-panel" id="eventPanel" aria-live="polite">
+      <div class="event-info">
+        <span class="chip" id="eventChip">Cargando…</span>
+        <div class="event-count" id="eventCount" role="timer">--:--:--</div>
+        <p class="small" id="eventDetail"></p>
+      </div>
+      <div class="event-actions">
+        <button type="button" class="primary" id="eventStart">Iniciar evento</button>
+        <button type="button" class="bad-btn hidden" id="eventEnd">Terminar ahora</button>
+      </div>
+    </section>
 
     <nav class="tabs" role="tablist" aria-label="Secciones del panel">
       <button class="tab active" role="tab" id="tab-registros" aria-selected="true" aria-controls="view-registros" data-tab="registros">Registros <span class="badge hidden" id="pendingBadge">0</span></button>
@@ -48,9 +58,7 @@
 
       <div class="controls">
         <div class="control-group">
-          <label class="inline">Día <input type="date" id="dayPicker"></label>
-          <button type="button" class="secondary" id="btnToday">Hoy</button>
-          <button type="button" class="secondary" id="btnAllDays">Todos los días</button>
+          <label class="inline">Evento <select id="eventPicker"><option value="">Todos los eventos</option></select></label>
         </div>
         <label class="search"><span class="sr-only">Buscar</span><input type="search" id="search" placeholder="Buscar por nombre, número, celular o usuario" autocomplete="off"></label>
         <div class="control-group">
@@ -60,13 +68,13 @@
             <div class="menu-body">
               <button type="button" id="exportXlsx">Excel (.xlsx)</button>
               <button type="button" id="exportCsv">CSV</button>
-              <p class="small">Solo incluye participaciones aceptadas del día elegido.</p>
+              <p class="small">Solo incluye participaciones aceptadas del evento elegido.</p>
             </div>
           </details>
         </div>
       </div>
 
-      <p class="hint" id="hint">Abre cada comprobante, confirma la transferencia y marca el pago como verificado antes de las 7:00 p. m.</p>
+      <p class="hint" id="hint">Abre cada comprobante, confirma la transferencia y marca el pago como verificado antes del cierre del evento.</p>
 
       <div class="table-wrap">
         <table>
@@ -79,7 +87,7 @@
 
     <!-- Número ganador -->
     <section class="panel view hidden" id="view-ganador" role="tabpanel" aria-labelledby="tab-ganador">
-      <h2>Número ganador del día</h2>
+      <h2>Número ganador del evento</h2>
       <p class="small">Publica el número según el resultado oficial de la Quinta. Al publicarlo aparece arriba en la página pública, cubierto por 5 burbujas que cada persona revienta para descubrir el número, una por una o todas a la vez.</p>
       <div class="winner-current hidden" id="winnerCurrent">
         <span>Publicado ahora en la página</span>
@@ -89,7 +97,7 @@
       </div>
       <form id="winnerForm" class="winner-form">
         <label>Número ganador (5 cifras)<input name="number" class="winner-input" inputmode="numeric" maxlength="5" minlength="5" pattern="[0-9]{5}" placeholder="00523" autocomplete="off" required></label>
-        <label>Jornada del sorteo<input name="date" type="date"></label>
+        <label>Día de la Quinta<input name="date" type="date"></label>
         <button class="primary">Publicar número ganador</button>
         <p id="winnerMessage" class="notice" role="status"></p>
       </form>

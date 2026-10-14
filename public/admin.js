@@ -1,10 +1,10 @@
 const $ = s => document.querySelector(s);
 const loginPanel = $('#loginPanel'), appBox = $('#app'), logoutBtn = $('#logout');
-const rows = $('#rows'), dayPicker = $('#dayPicker');
+const rows = $('#rows'), eventPicker = $('#eventPicker');
 const LABELS = { aceptada: 'Aceptada', rechazada: 'Rechazada', pendiente_verificacion: 'Por revisar' };
 const PILL = { aceptada: 'ok', rechazada: 'bad', pendiente_verificacion: 'warn' };
 const copFmt = n => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n);
-let records = [], statusInfo = null, filter = 'todos', query = '', allDays = false, lastFocus = null;
+let records = [], statusInfo = null, filter = 'todos', query = '', events = [], curEvent = null, offset = 0, lastFocus = null;
 
 async function api(url, options = {}) {
   const res = await fetch(url, { credentials: 'same-origin', ...options });
@@ -73,24 +73,70 @@ tabs.forEach((t, i) => {
 });
 
 /* ---------- Registros ---------- */
-function dateQuery(prefix) { return !allDays && dayPicker.value ? `${prefix}date=${encodeURIComponent(dayPicker.value)}` : ''; }
+const fmtWhen = iso => new Intl.DateTimeFormat('es-CO', { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', timeZone: 'America/Bogota' }).format(new Date(iso));
+function eventQuery(prefix) { return eventPicker.value ? `${prefix}event=${encodeURIComponent(eventPicker.value)}` : ''; }
+async function loadEvents(selectCurrent = false) {
+  const data = await api('/api/admin/events');
+  events = data.events; setEvent(data.current);
+  const keep = eventPicker.value;
+  eventPicker.innerHTML = '<option value="">Todos los eventos</option>' + events.map(e =>
+    `<option value="${esc(e.id)}">Evento del ${esc(fmtWhen(e.startIso))}${curEvent && curEvent.active && curEvent.id === e.id ? ' (abierto)' : ''}</option>`).join('');
+  const want = selectCurrent ? (events[0] && events[0].id) || '' : keep;
+  eventPicker.value = events.some(e => e.id === want) ? want : '';
+}
+function setEvent(ev) {
+  curEvent = ev || { active: false };
+  offset = curEvent.serverNowIso ? Date.parse(curEvent.serverNowIso) - Date.now() : 0;
+  const chip = $('#eventChip'), start = $('#eventStart'), end = $('#eventEnd');
+  chip.className = `chip ${curEvent.active ? 'ok' : 'bad'}`;
+  chip.textContent = curEvent.active ? 'Evento abierto' : curEvent.exists ? 'Evento cerrado' : 'Sin evento';
+  start.classList.toggle('hidden', curEvent.active); end.classList.toggle('hidden', !curEvent.active);
+  $('#eventDetail').textContent = curEvent.active
+    ? `Inició ${fmtWhen(curEvent.startIso)} · cierra ${fmtWhen(curEvent.endIso)} · juega en la Quinta del ${curEvent.quintaDate} (10:30 p. m.)`
+    : curEvent.exists ? `El último evento cerró (${fmtWhen(curEvent.endIso)}). Al iniciar uno nuevo, la cuenta regresiva corre hasta las 7:00 p. m. del día siguiente.`
+      : 'Pulsa "Iniciar evento": la cuenta regresiva corre hasta las 7:00 p. m. del día siguiente y se abre la recepción de registros.';
+  tickEvent();
+}
+function tickEvent() {
+  const el = $('#eventCount');
+  if (!curEvent || !curEvent.active) { el.textContent = '--:--:--'; return; }
+  const left = Math.floor((Date.parse(curEvent.endIso) - (Date.now() + offset)) / 1000);
+  if (left <= 0) { loadEvents().then(() => load(false, true)).catch(() => {}); el.textContent = '00:00:00'; return; }
+  const p = n => String(n).padStart(2, '0');
+  el.textContent = `${p(Math.floor(left / 3600))}:${p(Math.floor((left % 3600) / 60))}:${p(left % 60)}`;
+}
+setInterval(tickEvent, 1000);
+$('#eventStart').addEventListener('click', async () => {
+  if (!confirm('¿Iniciar el evento ahora? Se abre la recepción de registros y la cuenta regresiva corre hasta las 7:00 p. m. del día siguiente.')) return;
+  try {
+    await api('/api/admin/event/start', { method: 'POST' });
+    toast('Evento iniciado. Ya se reciben registros.', 'ok');
+    await loadEvents(true); await load(false, true);
+  } catch (err) { toast(err.message, 'bad'); }
+});
+$('#eventEnd').addEventListener('click', async () => {
+  if (!confirm('¿Terminar el evento ahora, antes de las 7:00 p. m.? Ya no se podrán recibir registros ni verificar pagos.')) return;
+  try {
+    await api('/api/admin/event/end', { method: 'POST' });
+    toast('Evento terminado.', 'ok');
+    await loadEvents(); await load(false, true);
+  } catch (err) { toast(err.message, 'bad'); }
+});
 async function load(initial = false, silent = false) {
   if (!silent) rows.innerHTML = '<tr><td colspan="5">Cargando…</td></tr>';
   try {
-    const url = initial ? '/api/admin/registrations?today=1' : allDays ? '/api/admin/registrations' : `/api/admin/registrations${dateQuery('?') || '?today=1'}`;
-    const data = await api(url);
+    if (initial) await loadEvents(true);
+    const data = await api(`/api/admin/registrations${eventQuery('?')}`);
     records = data.records; statusInfo = data.status;
-    if (initial || !dayPicker.value) dayPicker.value = data.date || statusInfo.date;
-    $('#adminStatus').innerHTML = `<b>${esc(statusInfo.date)}</b> hora del servidor ${esc(statusInfo.time)}: ` +
-      (statusInfo.closed ? '<span class="chip bad">Jornada cerrada</span>' : '<span class="chip ok">Recepción abierta hasta las 7:00 p. m.</span>');
+    setEvent(data.event);
     const s = data.summary;
     $('#sTotal').textContent = s.total; $('#sPending').textContent = s.pending;
     $('#sAccepted').textContent = s.accepted; $('#sRejected').textContent = s.rejected;
     $('#sMoney').textContent = copFmt(s.acceptedAmountCop);
     const b = $('#pendingBadge'); b.textContent = s.pending; b.classList.toggle('hidden', !s.pending);
-    $('#hint').textContent = statusInfo.closed
-      ? 'La jornada cerró: las participaciones aceptadas ya no se pueden modificar y las pendientes no participan.'
-      : 'Abre cada comprobante, confirma la transferencia y marca el pago como verificado antes de las 7:00 p. m.';
+    $('#hint').textContent = curEvent.active
+      ? 'Abre cada comprobante, confirma la transferencia y marca el pago como verificado antes del cierre del evento.'
+      : 'No hay evento abierto: las participaciones aceptadas ya no se pueden modificar y las pendientes de eventos cerrados no participan.';
     render();
   } catch (err) {
     if (!silent) rows.innerHTML = '<tr><td colspan="5">No se pudieron cargar los registros.</td></tr>';
@@ -141,13 +187,12 @@ async function setPayment(id, paymentStatus) {
 /* filtros, búsqueda, fecha */
 document.querySelectorAll('.stat[data-filter]').forEach(b => b.addEventListener('click', () => { filter = b.dataset.filter; render(); }));
 $('#search').addEventListener('input', e => { query = e.target.value; render(); });
-dayPicker.addEventListener('change', () => { allDays = false; filter = 'todos'; load(); });
-$('#btnToday').addEventListener('click', () => { allDays = false; filter = 'todos'; load(true); });
-$('#btnAllDays').addEventListener('click', () => { allDays = true; filter = 'todos'; load(); });
+eventPicker.addEventListener('change', () => { filter = 'todos'; load(); });
 $('#refresh').addEventListener('click', () => load(false));
 function doExport(kind) {
   $('#exportMenu').open = false;
-  window.location.href = `/api/admin/export.${kind}${dateQuery('?')}`;
+  if (!eventPicker.value) return toast('Elige un evento en la lista para descargar sus participantes.', 'bad');
+  window.location.href = `/api/admin/export.${kind}${eventQuery('?')}`;
 }
 $('#exportXlsx').addEventListener('click', () => doExport('xlsx'));
 $('#exportCsv').addEventListener('click', () => doExport('csv'));
@@ -299,13 +344,15 @@ const fmtDay = iso => { const [y, m, d] = iso.split('-').map(Number); return new
 winnerForm.number.addEventListener('input', e => { e.target.value = e.target.value.replace(/\D/g, '').slice(0, 5); });
 async function showWinner(w) {
   const box = $('#winnerCurrent'), matches = $('#winnerMatches');
-  if (!w) { box.classList.add('hidden'); matches.classList.add('hidden'); if (!winnerForm.date.value && statusInfo) winnerForm.date.value = statusInfo.date; return; }
+  if (!w) { box.classList.add('hidden'); matches.classList.add('hidden'); if (!winnerForm.date.value && statusInfo) winnerForm.date.value = (curEvent && curEvent.quintaDate) || statusInfo.date; return; }
   box.classList.remove('hidden');
   $('#winnerDigits').innerHTML = [...w.number].map(d => `<div class="digit">${esc(d)}</div>`).join('');
-  $('#winnerCurrentDate').textContent = w.date ? `Jornada del ${fmtDay(w.date)}` : '';
+  $('#winnerCurrentDate').textContent = w.date ? `Quinta del ${fmtDay(w.date)}` : '';
   winnerForm.date.value = w.date || winnerForm.date.value;
   try {
-    const data = await api(`/api/admin/registrations?date=${encodeURIComponent(w.date)}`);
+    const ev = events.find(e => e.quintaDate === w.date);
+    if (!ev) throw new Error('sin evento');
+    const data = await api(`/api/admin/registrations?event=${encodeURIComponent(ev.id)}`);
     const same = data.records.filter(r => r.number === w.number);
     const ok = same.filter(r => r.participationStatus === 'aceptada');
     const open = same.filter(r => r.participationStatus === 'pendiente_verificacion').length;
@@ -313,7 +360,7 @@ async function showWinner(w) {
     matches.innerHTML = `<h3>${ok.length ? `Participantes aceptados con el ${esc(w.number)} (${ok.length})` : 'Sin ganador entre los participantes aceptados'}</h3>` +
       (ok.length ? `<ul>${ok.map(r => `<li><b>${esc(r.fullName)}</b><span class="small">${esc(r.socialUser)}</span><span class="small">Celular ${esc(r.phone)}</span></li>`).join('')}</ul>`
         : '<p class="small">Nadie con pago verificado eligió este número.</p>') +
-      (open ? `<p class="small">Hay ${open} registro(s) con este número que siguen por revisar y no participan si la jornada ya cerró.</p>` : '');
+      (open ? `<p class="small">Hay ${open} registro(s) con este número que siguen por revisar y no participan porque el evento ya cerró.</p>` : '');
   } catch { matches.classList.add('hidden'); }
 }
 winnerForm.addEventListener('submit', async e => {

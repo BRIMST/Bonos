@@ -445,3 +445,19 @@ textarea:focus { outline: none; border-color: var(--violet); box-shadow: 0 0 0 4
 .dup-warn { margin: 0 0 10px; padding: 10px 14px; border-radius: 12px; background: #ffe1e2; color: #8a1c20; font-weight: 700; text-align: left; }
 .two-col form h2, .two-col .qr-box h2 { margin: 0; }
 .two-col form > p.small, .qr-box > p.small { margin: -6px 0 0; }
+
+/* ---------- Evento (admin) ---------- */
+.event-panel { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 14px;
+  background: linear-gradient(135deg, #1a1446, #4b2fd0); color: #fff; }
+.event-info { display: grid; gap: 6px; min-width: 0; }
+.event-info .small { color: #d9d3ff; margin: 0; }
+.event-count { font-size: clamp(28px, 7vw, 42px); font-weight: 900; letter-spacing: .04em; font-variant-numeric: tabular-nums; color: #ffc82e; }
+.event-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.event-actions button { min-height: 48px; padding: 0 22px; font-size: 16px; }
+.event-panel .chip { justify-self: start; }
+.inline select { min-height: 40px; max-width: 100%; }
+@media (max-width: 600px) { .event-actions, .event-actions button { width: 100%; } }
+.event-actions .bad-btn { background: #ff5a5f; color: #fff; border: 0; border-radius: 12px; font-weight: 800; cursor: pointer; }
+.event-actions .bad-btn:hover { filter: brightness(1.08); }
+label.inline { display: flex; align-items: center; gap: 8px; min-width: 0; max-width: 100%; }
+label.inline select { flex: 1; min-width: 0; width: 100%; text-overflow: ellipsis; }

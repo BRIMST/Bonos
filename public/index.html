@@ -35,7 +35,7 @@
     <section class="prize hidden" id="prize" aria-labelledby="prizeName">
       <div class="prize-pic hidden" id="prizePicBox"><img id="prizePic" alt="" width="640" height="640"></div>
       <div class="prize-body">
-        <p class="prize-kicker" id="prizeKicker">El premio de hoy</p>
+        <p class="prize-kicker" id="prizeKicker">El premio de este evento</p>
         <h2 id="prizeName"></h2>
         <p id="prizeDesc"></p>
         <div class="choice" id="prizeChoice"></div>
@@ -53,11 +53,11 @@
 
     <section class="hero">
       <h1>Cada aporte cuenta</h1>
-      <p>Gracias por ser parte de esta comunidad: con tu apoyo seguimos creciendo juntos. Y como agradecimiento, tu número participa por el premio de hoy. Envía tu comprobante y espera la verificación de tu pago antes de las 7:00 p. m.</p>
+      <p>Gracias por ser parte de esta comunidad: con tu apoyo seguimos creciendo juntos. Y como agradecimiento, tu número participa por el premio de este evento. Envía tu comprobante y espera la verificación de tu pago antes del cierre del evento (7:00 p. m.).</p>
       <div class="hero-row">
         <div class="price">$5.000 <small>COP por registro</small></div>
         <div class="clock" id="clock" role="timer" aria-live="off">
-          <span class="clock-label" id="clockLabel">Tiempo para el cierre</span>
+          <span class="clock-label" id="clockLabel">Tiempo para el cierre del evento</span>
           <span class="clock-time" id="countdown">--:--:--</span>
         </div>
       </div>
@@ -79,7 +79,7 @@
         <strong id="brebValue">Cargando…</strong>
         <button type="button" class="secondary" id="copyKey">Copiar llave</button>
       </div>
-      <p class="small">Confirma el destinatario en tu app antes de transferir. Si el pago no se verifica antes de las 7:00 p. m., el registro no participa hoy ni pasa al día siguiente: para otra jornada necesitas un nuevo registro y pago.</p>
+      <p class="small">Confirma el destinatario en tu app antes de transferir. Si el pago no se verifica antes del cierre del evento (7:00 p. m.), el registro no participa ni pasa al siguiente evento: para otro evento necesitas un nuevo registro y pago.</p>
     </section>
 
     <section class="panel">
@@ -87,7 +87,7 @@
       <form id="registerForm">
         <div class="ticket" aria-hidden="true">
           <div class="ticket-main">
-            <small>Tu número de hoy</small>
+            <small>Tu número</small>
             <div class="digits" id="digits"></div>
           </div>
           <div class="ticket-stub"><span><b>$5.000</b>tu aporte</span></div>
@@ -135,7 +135,7 @@
       <h2 id="successTitle">¡Muchas gracias por tu apoyo!</h2>
       <p class="luck">Buena suerte en el sorteo 🍀</p>
       <div class="digits" id="thanksDigits" aria-label="Tu número"></div>
-      <p class="note">Recibimos tu registro. Tu número queda aceptado cuando verifiquemos el pago, antes de las 7:00 p. m. de hoy.</p>
+      <p class="note">Recibimos tu registro. Tu número queda aceptado cuando verifiquemos el pago, antes del cierre del evento.</p>
       <p class="code" id="thanksCode"></p>
       <button type="button" class="primary" id="closeSuccess">Listo</button>
     </div>

@@ -9,32 +9,28 @@ const clockLabel = document.querySelector('#clockLabel');
 const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 let paymentKey = '';
 let isClosed = false;
-let clockState = null; // { secs: segundos del día en el servidor, at: Date.now() al consultarlo }
+let clockState = null; // { endMs, offset } offset = hora del servidor - hora del dispositivo
 
-/* ---------- Estado de la jornada y cuenta regresiva ---------- */
-function toSeconds(hhmmss) {
-  const [h, m, s] = hhmmss.split(':').map(Number);
-  return h * 3600 + m * 60 + s;
-}
+/* ---------- Estado del evento y cuenta regresiva ---------- */
 function pad(n) { return String(n).padStart(2, '0'); }
+const fmtEnd = iso => new Intl.DateTimeFormat('es-CO', { weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit', timeZone: 'America/Bogota' }).format(new Date(iso));
 function tick() {
-  if (!clockState) return;
-  const now = clockState.secs + (Date.now() - clockState.at) / 1000;
-  const left = Math.floor(19 * 3600 - now);
-  if (left <= 0) {
-    if (!isClosed) loadStatus();
-    return;
-  }
+  if (!clockState || isClosed) return;
+  const left = Math.floor((clockState.endMs - (Date.now() + clockState.offset)) / 1000);
+  if (left <= 0) { loadStatus(); return; }
   countdown.textContent = `${pad(Math.floor(left / 3600))}:${pad(Math.floor((left % 3600) / 60))}:${pad(left % 60)}`;
   clock.classList.toggle('low', left <= 900);
 }
-function applyClosed(closed) {
+function applyClosed(closed, hasEvent) {
   isClosed = closed;
   clock.classList.toggle('closed', closed);
-  if (closed) { countdown.textContent = 'Jornada cerrada'; clockLabel.textContent = 'Vuelve mañana'; clock.classList.remove('low'); }
-  else clockLabel.textContent = 'Tiempo para el cierre';
+  if (closed) {
+    countdown.textContent = hasEvent ? 'Evento cerrado' : 'Próximamente';
+    clockLabel.textContent = hasEvent ? 'Espera el próximo evento' : 'Aún no hay evento abierto';
+    clock.classList.remove('low');
+  } else clockLabel.textContent = 'Tiempo para el cierre del evento';
   submitBtn.disabled = closed;
-  submitBtn.textContent = closed ? 'Jornada cerrada' : 'Enviar registro';
+  submitBtn.textContent = closed ? (hasEvent ? 'Evento cerrado' : 'Sin evento abierto') : 'Enviar registro';
 }
 async function loadStatus() {
   try {
@@ -44,15 +40,20 @@ async function loadStatus() {
     paymentKey = s.brebValue;
     document.querySelector('#brebLabel').textContent = s.brebLabel;
     document.querySelector('#brebValue').textContent = s.brebValue;
-    clockState = { secs: toSeconds(s.time), at: Date.now() };
+    const ev = s.event || {};
+    clockState = ev.active ? { endMs: Date.parse(ev.endIso), offset: Date.parse(ev.serverNowIso) - Date.now() } : null;
     renderPrize(s.prize);
     renderWinner(s.winner);
     renderProfile(s.profile);
-    applyClosed(s.closed);
-    statusBox.textContent = s.closed
-      ? `La jornada de hoy (${s.date}) cerró a las 7:00 p. m. Los registros no se trasladan al día siguiente: vuelve mañana con un nuevo registro y pago.`
-      : `Jornada de hoy: ${s.date}. Recibimos registros y verificamos pagos hasta las 7:00 p. m. (hora de Colombia).`;
-    statusBox.className = `notice ${s.closed ? 'warning' : 'success'}`;
+    applyClosed(!ev.active, ev.exists);
+    if (ev.active) {
+      statusBox.textContent = `Evento abierto. Recibimos registros y verificamos pagos hasta el ${fmtEnd(ev.endIso)} (hora de Colombia). Tu número juega en la Quinta de ese día, que sale a las 10:30 p. m.`;
+    } else if (ev.exists) {
+      statusBox.textContent = 'El evento ya cerró. Los registros no se trasladan al siguiente evento: cuando se abra uno nuevo podrás participar con un nuevo registro y pago.';
+    } else {
+      statusBox.textContent = 'Todavía no hay un evento abierto. Estate atento a los anuncios: aquí aparecerá la cuenta regresiva cuando inicie.';
+    }
+    statusBox.className = `notice ${ev.active ? 'success' : 'warning'}`;
     tick();
   } catch (err) {
     statusBox.textContent = 'No pudimos consultar el estado del servicio. Recarga la página en unos segundos.';
@@ -75,7 +76,7 @@ function renderPrize(p) {
   picBox.classList.toggle('hidden', !p.imageVersion);
   if (p.imageVersion) { const src = `/api/prize-image?v=${p.imageVersion}`; if (pic.getAttribute('src') !== src) pic.src = src; pic.alt = `Premio: ${p.name}`; }
   const choice = document.querySelector('#prizeChoice');
-  document.querySelector('#prizeKicker').textContent = p.mode === 'ambos' ? 'Si ganas, tú eliges' : 'El premio de hoy';
+  document.querySelector('#prizeKicker').textContent = p.mode === 'ambos' ? 'Si ganas, tú eliges' : 'El premio de este evento';
   const opt = (title, sub) => `<div class="opt"><b>${title}</b><span>${sub}</span></div>`;
   choice.innerHTML = p.mode === 'premio' ? opt('El premio', 'Se entrega al ganador')
     : p.mode === 'dinero' ? opt(copFmt(p.cashCop), 'En efectivo para el ganador')
