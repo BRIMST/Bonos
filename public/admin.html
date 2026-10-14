@@ -4,7 +4,7 @@
   <meta charset="utf-8"><meta name="theme-color" content="#1a1446"><meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Administración | Juntos Sumamos</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%231a1446'/%3E%3Ctext x='16' y='23' font-size='20' font-weight='900' text-anchor='middle' fill='%23ffc82e' font-family='Arial'%3EB%3C/text%3E%3C/svg%3E">
-  <link rel="stylesheet" href="/styles.css"><script defer src="/admin.js"></script>
+  <link rel="stylesheet" href="/styles.css"><script defer src="/admin.js"></script><script defer src="/admin-ruleta.js"></script>
 </head>
 <body class="admin">
 <header class="top"><div class="wrap">
@@ -40,6 +40,7 @@
 
     <nav class="tabs" role="tablist" aria-label="Secciones del panel">
       <button class="tab active" role="tab" id="tab-registros" aria-selected="true" aria-controls="view-registros" data-tab="registros">Registros <span class="badge hidden" id="pendingBadge">0</span></button>
+      <button class="tab" role="tab" id="tab-ruleta" aria-selected="false" aria-controls="view-ruleta" data-tab="ruleta">Ruleta</button>
       <button class="tab" role="tab" id="tab-ganador" aria-selected="false" aria-controls="view-ganador" data-tab="ganador">Número ganador</button>
       <button class="tab" role="tab" id="tab-premio" aria-selected="false" aria-controls="view-premio" data-tab="premio">Premio</button>
       <button class="tab" role="tab" id="tab-perfil" aria-selected="false" aria-controls="view-perfil" data-tab="perfil">Perfil y QR</button>
@@ -83,6 +84,71 @@
         </table>
       </div>
       <p id="tableMessage" class="small"></p>
+    </section>
+
+    <!-- Ruleta de Seguidores -->
+    <section class="panel view hidden" id="view-ruleta" role="tabpanel" aria-labelledby="tab-ruleta">
+      <div id="rlSummary" class="rl-summary hidden">
+        <div class="rl-top">
+          <div><span class="chip" id="rlChip"></span> <b id="rlName"></b></div>
+          <a class="small" id="rlLive" href="/ruleta.html" target="_blank" rel="noopener">Abrir pantalla del live ↗</a>
+        </div>
+        <div class="rl-bar-wrap" aria-label="Barra de recaudo">
+          <div class="rl-bar"><i id="rlFill"></i><span class="rl-mark" id="rlMark" title="Valor del premio"></span></div>
+          <p id="rlBarText" class="rl-bar-text"></p>
+        </div>
+        <div class="rl-nums">
+          <div><span>Recaudado</span><b id="rlCollected">$ 0</b></div>
+          <div><span>Valor del premio</span><b id="rlTarget">$ 0</b></div>
+          <div><span>Puestos</span><b id="rlSeats">0/0</b></div>
+        </div>
+        <div class="rl-actions" id="rlActions"></div>
+        <div class="rl-winner hidden" id="rlWinner"></div>
+        <p class="notice" id="rlMessage" role="status"></p>
+      </div>
+
+      <div class="two-col">
+        <form id="rlForm">
+          <h2 id="rlFormTitle">Crear ruleta</h2>
+          <p class="small">Define los puestos, el precio y el premio. La barra de recaudo usa el valor del premio como referencia.</p>
+          <label>Nombre del evento<input name="name" maxlength="80" placeholder="Ruleta de Seguidores"></label>
+          <label>Cantidad de puestos<input name="seats" type="number" inputmode="numeric" min="2" max="1000" placeholder="50" required></label>
+          <label>Precio por puesto (COP)<input name="priceCop" type="number" inputmode="numeric" min="1000" step="500" placeholder="5000" required></label>
+          <label>Nombre del premio<input name="prizeName" maxlength="80" placeholder="Ej. Audífonos Bluetooth" required></label>
+          <label>Descripción (opcional)<input name="prizeDescription" maxlength="300"></label>
+          <label>Valor del premio en el mercado (COP)<input name="prizeValueCop" type="number" inputmode="numeric" min="1000" step="1000" placeholder="150000" required></label>
+          <label class="check"><input type="checkbox" name="requireMin"><span>Solo se juega si lo recaudado llega al valor del premio</span></label>
+          <button class="primary" id="rlSave">Crear ruleta</button>
+          <div class="rl-img hidden" id="rlImgBox">
+            <div class="prize-preview"><img id="rlImg" alt="Premio" class="hidden"><span id="rlNoImg">Sin imagen</span></div>
+            <label class="file-btn secondary">Subir imagen del premio<input type="file" id="rlImage" accept="image/jpeg,image/png" hidden></label>
+            <button type="button" class="secondary" id="rlImageRemove">Quitar imagen</button>
+            <p id="rlImageMessage" class="notice" role="status"></p>
+          </div>
+        </form>
+
+        <div>
+          <form id="rlSeatForm" class="hidden">
+            <h2>Agregar seguidor</h2>
+            <p class="small">Hazlo después de confirmar su pago. Cada puesto recibe un número; puede comprar varios.</p>
+            <label>Nombre completo<input name="fullName" maxlength="120" required></label>
+            <label>Usuario de red social (opcional)<input name="socialUser" maxlength="80"></label>
+            <label>Celular (opcional)<input name="phone" inputmode="numeric" maxlength="10" pattern="[0-9]{10}"></label>
+            <label>Cantidad de puestos<input name="quantity" type="number" inputmode="numeric" min="1" max="100" value="1" required></label>
+            <button class="primary">Agregar a la ruleta</button>
+          </form>
+        </div>
+      </div>
+
+      <div id="rlBuyers" class="hidden">
+        <h2>Participantes <span class="small">(solo tú ves los nombres)</span></h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Participante</th><th>Puestos</th><th>Aporte</th><th>Acciones</th></tr></thead>
+            <tbody id="rlRows"></tbody>
+          </table>
+        </div>
+      </div>
     </section>
 
     <!-- Número ganador -->

@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8"><meta name="theme-color" content="#1a1446"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ruleta de Seguidores | Juntos Sumamos</title>
+  <meta name="description" content="Mira en vivo la Ruleta de Seguidores de Juntos Sumamos.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%231a1446'/%3E%3Ctext x='16' y='23' font-size='20' font-weight='900' text-anchor='middle' fill='%23ffc82e' font-family='Arial'%3EB%3C/text%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/styles.css"><script defer src="/ruleta.js"></script>
+</head>
+<body class="live">
+<header class="top"><div class="wrap">
+  <span class="brand">Juntos <b>Sumamos</b> · Ruleta</span>
+  <span class="top-actions"><a href="/">Inicio</a></span>
+</div></header>
+
+<main class="wrap live-main">
+  <section class="live-empty hidden" id="liveEmpty">
+    <h1>Aún no hay una ruleta activa</h1>
+    <p>Cuando el organizador la abra, aparecerá aquí con el premio y los puestos.</p>
+  </section>
+
+  <div id="liveApp" class="hidden">
+    <div class="live-head">
+      <span class="live-chip" id="liveStatus"></span>
+      <h1 id="liveName"></h1>
+      <p class="live-sub" id="liveSub"></p>
+    </div>
+
+    <div class="live-grid">
+      <div class="wheel-box">
+        <div class="wheel-wrap" id="wheelWrap">
+          <div class="pointer" aria-hidden="true"></div>
+          <canvas id="wheel" role="img" aria-label="Ruleta con los puestos participantes"></canvas>
+          <div class="hub" id="hub" aria-live="polite"><small id="hubLabel">Puestos</small><b id="hubNum">0</b></div>
+        </div>
+      </div>
+
+      <aside class="live-side">
+        <div class="prize-live" id="prizeLive">
+          <div class="prize-live-img"><img id="prizeLiveImg" alt="Premio" class="hidden"></div>
+          <p class="prize-kicker">Premio</p>
+          <h2 id="prizeLiveName"></h2>
+          <p id="prizeLiveDesc" class="small"></p>
+        </div>
+        <div class="seat-meter">
+          <div class="seat-meter-row"><b id="seatCount">0</b><span id="seatOf"></span></div>
+          <div class="seat-bar"><i id="seatFill"></i></div>
+          <p class="small" id="seatPrice"></p>
+        </div>
+      </aside>
+    </div>
+
+    <section class="seat-board" aria-label="Puestos">
+      <h2>Puestos</h2>
+      <div class="seat-grid" id="seatGrid"></div>
+      <p class="small">Los puestos ocupados aparecen en color. Por privacidad no se muestran nombres.</p>
+    </section>
+  </div>
+
+  <div class="live-winner hidden" id="liveWinner" role="status">
+    <div class="live-winner-card">
+      <p>¡Tenemos ganador!</p>
+      <div class="live-winner-num" id="winnerSeatNum"></div>
+      <p class="small">Puesto ganador</p>
+      <button type="button" class="secondary" id="winnerClose">Cerrar</button>
+    </div>
+  </div>
+  <canvas id="liveConfetti" aria-hidden="true"></canvas>
+</main>
+<footer><div class="wrap">Juntos Sumamos · Los nombres de los participantes no se publican.</div></footer>
+</body>
+</html>
