@@ -131,6 +131,24 @@ function currentStatus(now = new Date()) {
   const closed = time >= `${String(CLOSE_HOUR).padStart(2,'0')}:00:00`;
   return { date, time, closed, closeTime: '19:00', assignedDate: closed ? nextDate(date) : date };
 }
+// ---- Evento ----
+// El administrador inicia el evento; termina a las 7:00 p. m. (Bogotá) del día siguiente al inicio.
+// Bogotá es UTC-5 todo el año, así que las 19:00 locales son las 00:00 UTC del día siguiente.
+function eventEndFor(start) {
+  const [y, m, d] = dateInBogota(start).split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d + 2, 0, 0, 0));
+}
+function eventState(settings, now = new Date()) {
+  const ev = settings.event;
+  if (!ev || !ev.id) return { exists: false, active: false };
+  const endMs = Date.parse(ev.endIso);
+  const active = ev.status === 'abierto' && now.getTime() < endMs;
+  return {
+    exists: true, active, id: ev.id, startIso: ev.startIso,
+    endIso: ev.endIso, quintaDate: ev.quintaDate, endedEarly: Boolean(ev.endedEarly),
+    serverNowIso: now.toISOString()
+  };
+}
 // Configuración editable desde el panel (llave Bre-B y contraseña), guardada en Firestore.
 // Si aún no existe, se usan las variables de entorno como valores iniciales.
 const settingsRef = {
@@ -215,9 +233,13 @@ async function recordsForDate(date) {
   const snap = await db.collection('registrations').where('createdDateBogota', '==', date).limit(5000).get();
   return snap.docs.map(d => d.data()).sort((a, b) => String(a.createdAtIso).localeCompare(String(b.createdAtIso)));
 }
+async function recordsForEvent(eventId) {
+  const snap = await db.collection('registrations').where('eventId', '==', eventId).limit(5000).get();
+  return snap.docs.map(d => d.data()).sort((a, b) => String(a.createdAtIso).localeCompare(String(b.createdAtIso)));
+}
 function publicRecord(d) {
   return {
-    id: d.id, createdDateBogota: d.createdDateBogota,
+    id: d.id, eventId: d.eventId || null, createdDateBogota: d.createdDateBogota,
     createdTimeBogota: d.createdTimeBogota, assignedDate: d.assignedDate,
     receivedAfterClose: d.receivedAfterClose, fullName: d.fullName,
     socialUser: d.socialUser, phone: d.phone, number: d.number,
@@ -231,9 +253,10 @@ app.get('/api/status', async (_req, res, next) => {
   try {
   const status = currentStatus();
   const settings = await getSettings();
+  const ev = eventState(settings);
   res.json({
-    date: status.date, time: status.time, closed: status.closed,
-    closeTime: status.closeTime, price: PRICE_COP,
+    date: status.date, time: status.time, closed: !ev.active,
+    closeTime: status.closeTime, price: PRICE_COP, event: ev,
     brebLabel: settings.brebLabel || process.env.BREB_LABEL || 'Llave Bre-B',
     brebValue: settings.brebValue || process.env.BREB_VALUE || 'Pago no configurado aún',
     prize: publicPrize(settings),
@@ -263,9 +286,12 @@ app.post('/api/register', registerLimiter, upload.single('receipt'), async (req,
 
     // La hora se calcula exclusivamente en el servidor, en la zona de Bogotá.
     const status = currentStatus();
-    // No se trasladan registros a otra jornada: después del cierre se rechaza el envío.
-    if (status.closed) {
-      return res.status(409).json({ error: 'La jornada de hoy cerró a las 7:00 p. m. Los registros no se trasladan al día siguiente. Vuelve mañana y realiza un nuevo registro con su comprobante de pago.' });
+    // Solo se puede registrar mientras hay un evento abierto; no se trasladan registros a otro evento.
+    const ev = eventState(await getSettings());
+    if (!ev.active) {
+      return res.status(409).json({ error: ev.exists
+        ? 'El evento ya cerró. Los registros no se trasladan al siguiente evento. Cuando se abra uno nuevo podrás participar con un nuevo registro y su comprobante.'
+        : 'Por ahora no hay un evento abierto. Vuelve cuando se anuncie el próximo.' });
     }
     if (req.file.buffer.length > MAX_RECEIPT_BYTES) {
       return res.status(413).json({ error: 'El comprobante pesa demasiado (máximo 800 KB). Usa una captura más liviana o un PDF más pequeño.' });
@@ -280,7 +306,8 @@ app.post('/api/register', registerLimiter, upload.single('receipt'), async (req,
       createdAtIso: new Date().toISOString(),
       createdDateBogota: status.date,
       createdTimeBogota: status.time,
-      assignedDate: status.date,
+      eventId: ev.id,
+      assignedDate: ev.quintaDate,
       receivedAfterClose: false,
       fullName,
       socialUser,
@@ -299,13 +326,13 @@ app.post('/api/register', registerLimiter, upload.single('receipt'), async (req,
     // Primero el comprobante y luego el registro: nunca queda un registro sin comprobante.
     await db.collection('receipts').doc(id).set({
       id, mimeType: req.file.mimetype, size: req.file.buffer.length,
-      data: req.file.buffer, createdDateBogota: status.date
+      data: req.file.buffer, createdDateBogota: status.date, eventId: ev.id
     });
     await db.collection('registrations').doc(id).set(record);
     res.status(201).json({
-      message: 'Registro recibido para la jornada de hoy. La participación solo queda aceptada cuando el pago sea verificado antes de las 7:00 p. m. Si no se verifica a tiempo, no participa y no se traslada a otro día.',
+      message: 'Registro recibido para este evento. La participación solo queda aceptada cuando el pago sea verificado antes del cierre del evento. Si no se verifica a tiempo, no participa y no se traslada a otro evento.',
       id,
-      assignedDate: status.date,
+      assignedDate: ev.quintaDate,
       receivedAfterClose: false
     });
   } catch (err) {
@@ -341,6 +368,7 @@ app.get('/api/admin/settings', requireAdmin, async (_req, res, next) => {
     res.json({
       brebLabel: settings.brebLabel || process.env.BREB_LABEL || 'Llave Bre-B',
       brebValue: settings.brebValue || process.env.BREB_VALUE || '',
+      event: eventState(settings),
       winner: publicWinner(settings),
       profile: publicProfile(settings) || { name: '', bio: '', links: [] },
       prize: publicPrize(settings) || { name: '', description: '', mode: 'premio', cashCop: 0, imageVersion: null }
@@ -427,7 +455,9 @@ app.get('/api/winners', async (_req, res, next) => {
 app.put('/api/admin/winner', requireAdmin, async (req, res, next) => {
   try {
     const number = cleanString(req.body.number, 5);
-    const date = validDate(req.body.date) ? req.body.date : currentStatus().date;
+    const evSettings = await getSettings();
+    const date = validDate(req.body.date) ? req.body.date
+      : (evSettings.event && evSettings.event.quintaDate) || currentStatus().date;
     if (!validNumber(number)) return res.status(400).json({ error: 'El número ganador debe tener exactamente 5 cifras (por ejemplo 00523).' });
     await settingsRef.set({ winnerNumber: number, winnerDate: date, winnerVersion: Date.now() }, { merge: true });
     await db.collection('winners').doc(date).set({ date, number, publishedAtIso: new Date().toISOString() });
@@ -495,14 +525,56 @@ app.post('/api/admin/password', requireAdmin, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// Eventos: iniciar, terminar antes de tiempo y listar.
+app.post('/api/admin/event/start', requireAdmin, async (_req, res, next) => {
+  try {
+    const settings = await getSettings();
+    const cur = eventState(settings);
+    if (cur.active) return res.status(409).json({ error: 'Ya hay un evento abierto. Termínalo antes de iniciar otro.' });
+    const now = new Date();
+    const end = eventEndFor(now);
+    const id = `ev-${dateInBogota(now)}-${timeInBogota(now).replace(/:/g, '')}`;
+    const event = {
+      id, status: 'abierto', startIso: now.toISOString(), endIso: end.toISOString(),
+      quintaDate: dateInBogota(end), endedEarly: false
+    };
+    await db.collection('events').doc(id).set(event);
+    await settingsRef.set({ event }, { merge: true });
+    res.status(201).json({ ok: true, event: eventState({ event }, now) });
+  } catch (err) { next(err); }
+});
+
+app.post('/api/admin/event/end', requireAdmin, async (_req, res, next) => {
+  try {
+    const settings = await getSettings();
+    const cur = eventState(settings);
+    if (!cur.active) return res.status(409).json({ error: 'No hay un evento abierto.' });
+    const event = { ...settings.event, status: 'cerrado', endedEarly: true, closedAtIso: new Date().toISOString() };
+    await db.collection('events').doc(event.id).set(event);
+    await settingsRef.set({ event }, { merge: true });
+    res.json({ ok: true, event: eventState({ event }) });
+  } catch (err) { next(err); }
+});
+
+app.get('/api/admin/events', requireAdmin, async (_req, res, next) => {
+  try {
+    const snap = await db.collection('events').limit(200).get();
+    const events = snap.docs.map(d => d.data())
+      .sort((a, b) => String(b.startIso).localeCompare(String(a.startIso))).slice(0, 40)
+      .map(e => ({ id: e.id, startIso: e.startIso, endIso: e.endIso, quintaDate: e.quintaDate, endedEarly: Boolean(e.endedEarly) }));
+    res.json({ events, current: eventState(await getSettings()) });
+  } catch (err) { next(err); }
+});
+
 app.get('/api/admin/registrations', requireAdmin, async (req, res, next) => {
   try {
     const status = currentStatus();
-    const dayMode = req.query.today === '1' || validDate(req.query.date);
-    const date = validDate(req.query.date) ? req.query.date : status.date;
+    const settings = await getSettings();
+    const event = eventState(settings);
+    const eventId = typeof req.query.event === 'string' && /^ev-[\d-]+$/.test(req.query.event) ? req.query.event : '';
     let docs;
-    if (dayMode) {
-      docs = (await recordsForDate(date)).reverse();
+    if (eventId) {
+      docs = (await recordsForEvent(eventId)).reverse();
     } else {
       const snap = await db.collection('registrations').orderBy('createdAt', 'desc').limit(1000).get();
       docs = snap.docs.map(d => d.data());
@@ -515,7 +587,7 @@ app.get('/api/admin/registrations', requireAdmin, async (req, res, next) => {
       pending: docs.filter(d => (d.participationStatus || 'pendiente_verificacion') === 'pendiente_verificacion').length,
       rejected: docs.filter(d => d.participationStatus === 'rechazada').length
     };
-    res.json({ records: docs.slice(0, 1000).map(publicRecord), status, summary, date: dayMode ? date : null, limit: 1000 });
+    res.json({ records: docs.slice(0, 1000).map(publicRecord), status, event, summary, eventId: eventId || null, limit: 1000 });
   } catch (err) { next(err); }
 });
 
@@ -542,18 +614,14 @@ app.patch('/api/admin/registrations/:id/payment', requireAdmin, async (req, res,
     const snap = await ref.get();
     if (!snap.exists) return res.status(404).json({ error: 'Registro no encontrado.' });
     const record = snap.data();
-    if (paymentStatus === 'verificado') {
-      const nowStatus = currentStatus();
-      if (nowStatus.closed || record.assignedDate !== nowStatus.date || record.receivedAfterClose) {
-        return res.status(409).json({ error: 'Solo se puede verificar un pago antes de las 7:00 p. m. del mismo día de la inscripción. Esta participación no se traslada a otra jornada.' });
-      }
+    const ev = eventState(await getSettings());
+    const inOpenEvent = ev.active && record.eventId === ev.id && !record.receivedAfterClose;
+    if (paymentStatus === 'verificado' && !inOpenEvent) {
+      return res.status(409).json({ error: 'Solo se puede verificar un pago mientras el evento de esa inscripción siga abierto. Esta participación no se traslada a otro evento.' });
     }
-    // Una participación ya aceptada queda congelada una vez cierra la jornada.
-    if (record.participationStatus === 'aceptada' && paymentStatus !== 'verificado') {
-      const nowStatus = currentStatus();
-      if (nowStatus.closed || record.assignedDate !== nowStatus.date) {
-        return res.status(409).json({ error: 'La jornada ya cerró: una participación aceptada no se puede modificar.' });
-      }
+    // Una participación ya aceptada queda congelada una vez cierra el evento.
+    if (record.participationStatus === 'aceptada' && paymentStatus !== 'verificado' && !inOpenEvent) {
+      return res.status(409).json({ error: 'El evento ya cerró: una participación aceptada no se puede modificar.' });
     }
     const participationStatus = paymentStatus === 'verificado' ? 'aceptada' : paymentStatus === 'rechazado' ? 'rechazada' : 'pendiente_verificacion';
     await ref.update({
@@ -567,17 +635,17 @@ app.patch('/api/admin/registrations/:id/payment', requireAdmin, async (req, res,
 
 app.get('/api/admin/export.xlsx', requireAdmin, async (req, res, next) => {
   try {
-    const status = currentStatus();
-    const date = validDate(req.query.date) ? req.query.date : status.date;
-    status.date = date;
-    const accepted = (await recordsForDate(date)).filter(d => d.participationStatus === 'aceptada' && !d.receivedAfterClose);
+    const eventId = typeof req.query.event === 'string' && /^ev-[\d-]+$/.test(req.query.event) ? req.query.event : '';
+    if (!eventId) return res.status(400).json({ error: 'Elige un evento para descargar la lista.' });
+    const status = { date: eventId.replace(/^ev-/, '') };
+    const accepted = (await recordsForEvent(eventId)).filter(d => d.participationStatus === 'aceptada' && !d.receivedAfterClose);
 
     const ExcelJS = require('exceljs');
     const workbook = new ExcelJS.Workbook();
     workbook.creator = 'Bono de Contribución Diaria';
     workbook.created = new Date();
 
-    const sheet = workbook.addWorksheet('Participantes del día', {
+    const sheet = workbook.addWorksheet('Participantes del evento', {
       views: [{ state: 'frozen', ySplit: 1 }]
     });
     sheet.columns = [
@@ -590,7 +658,7 @@ app.get('/api/admin/export.xlsx', requireAdmin, async (req, res, next) => {
       { header: 'Número de 5 cifras', key: 'number', width: 20 },
       { header: 'Valor (COP)', key: 'amount', width: 15 },
       { header: 'Estado del pago', key: 'payment', width: 22 },
-      { header: 'Jornada asignada', key: 'assignedDate', width: 18 }
+      { header: 'Juega en la Quinta del', key: 'assignedDate', width: 18 }
     ];
     sheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
     sheet.getRow(1).fill = {
@@ -628,10 +696,10 @@ app.get('/api/admin/export.xlsx', requireAdmin, async (req, res, next) => {
 
 app.get('/api/admin/export.csv', requireAdmin, async (req, res, next) => {
   try {
-    const status = currentStatus();
-    const date = validDate(req.query.date) ? req.query.date : status.date;
-    status.date = date;
-    const accepted = (await recordsForDate(date)).filter(d => d.participationStatus === 'aceptada' && !d.receivedAfterClose);
+    const eventId = typeof req.query.event === 'string' && /^ev-[\d-]+$/.test(req.query.event) ? req.query.event : '';
+    if (!eventId) return res.status(400).json({ error: 'Elige un evento para descargar la lista.' });
+    const status = { date: eventId.replace(/^ev-/, '') };
+    const accepted = (await recordsForEvent(eventId)).filter(d => d.participationStatus === 'aceptada' && !d.receivedAfterClose);
     const rows = [['ID','Fecha Bogotá','Hora Bogotá','Nombre','Red social','Celular','Número','Estado pago']];
     accepted.forEach(d => {
       rows.push([d.id,d.createdDateBogota,d.createdTimeBogota,d.fullName,d.socialUser,d.phone,d.number,d.paymentStatus]);
