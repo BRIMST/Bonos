@@ -89,7 +89,8 @@ app.use(cookieSession({
   sameSite: 'strict',
   maxAge: 2 * 60 * 60 * 1000
 }));
-app.use('/api/', rateLimit({ windowMs: 15 * 60 * 1000, limit: 100, standardHeaders: true, legacyHeaders: false }));
+app.use('/api/', rateLimit({ windowMs: 15 * 60 * 1000, limit: 100, standardHeaders: true, legacyHeaders: false,
+  skip: req => req.method === 'GET' && req.path === '/roulette' })); // la pantalla del live consulta seguido; tiene su propio límite
 app.use(express.static(path.join(__dirname, 'public')));
 const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 10, standardHeaders: true, legacyHeaders: false,
   message: { error: 'Demasiados intentos. Espera 15 minutos e inténtalo de nuevo.' } });
@@ -708,6 +709,251 @@ app.get('/api/admin/export.csv', requireAdmin, async (req, res, next) => {
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="participantes-${status.date}.csv"`);
     res.send('\uFEFF' + csv);
+  } catch (err) { next(err); }
+});
+
+// ---- Ruleta de Seguidores ----
+// Una ruleta a la vez. Los puestos se numeran y la página pública NUNCA recibe nombres ni teléfonos:
+// solo los números de puesto ocupados. El ganador se elige en el servidor con un sorteo aleatorio seguro.
+const ROULETTE_MARGIN_COP = 2000;   // margen para la barra naranja ("justo")
+const SPIN_LEAD_MS = 7000;          // tiempo entre pulsar "Girar" y que arranque la animación (todos alcanzan a verla)
+const SPIN_MS = 10000;              // duración de la animación
+const rouletteRef = () => db.collection('roulette').doc('current');
+async function getRoulette() { const s = await rouletteRef().get(); return s.exists ? s.data() : null; }
+async function rouletteSeats(rouletteId) {
+  const snap = await db.collection('rouletteSeats').where('rouletteId', '==', rouletteId).limit(5000).get();
+  return snap.docs.map(d => d.data()).sort((a, b) => a.seat - b.seat);
+}
+function rouletteBar(r) {
+  const collectedCop = (r.occupied || []).length * r.priceCop;
+  const targetCop = r.prizeValueCop || 0;
+  const diffCop = collectedCop - targetCop;
+  const state = diffCop < -ROULETTE_MARGIN_COP ? 'rojo' : diffCop > ROULETTE_MARGIN_COP ? 'verde' : 'naranja';
+  return { collectedCop, targetCop, diffCop, state, marginCop: ROULETTE_MARGIN_COP };
+}
+function publicRoulette(r) {
+  if (!r) return { exists: false, serverNowIso: new Date().toISOString() };
+  return {
+    exists: true, id: r.id, name: r.name, status: r.status,
+    seatsTotal: r.seats, occupied: r.occupied || [], priceCop: r.priceCop,
+    prize: { name: r.prizeName, description: r.prizeDescription || '', imageVersion: r.prizeImageVersion || null },
+    winnerSeat: r.status === 'sorteada' ? r.winnerSeat : null,
+    spinVersion: r.spinVersion || 0, spinStartsAtIso: r.spinStartsAtIso || null, spinMs: SPIN_MS,
+    serverNowIso: new Date().toISOString()
+  };
+}
+function parseRouletteConfig(body) {
+  const name = cleanString(body.name, 80) || 'Ruleta de Seguidores';
+  const seats = Math.round(Number(body.seats));
+  const priceCop = Math.round(Number(body.priceCop));
+  const prizeName = cleanString(body.prizeName, 80);
+  const prizeDescription = cleanString(body.prizeDescription, 300);
+  const prizeValueCop = Math.round(Number(body.prizeValueCop));
+  const requireMin = body.requireMin === true || body.requireMin === 'true';
+  if (!(seats >= 2 && seats <= 1000)) return { error: 'La cantidad de puestos debe estar entre 2 y 1.000.' };
+  if (!(priceCop >= 1000 && priceCop <= 10000000)) return { error: 'El precio por puesto debe ser de al menos $1.000.' };
+  if (prizeName.length < 2) return { error: 'Escribe el nombre del premio.' };
+  if (!(prizeValueCop >= 1000 && prizeValueCop <= 1000000000)) return { error: 'Escribe el valor del premio (mínimo $1.000). Se usa para la barra de recaudo.' };
+  return { value: { name, seats, priceCop, prizeName, prizeDescription, prizeValueCop, requireMin } };
+}
+function groupBuyers(seats) {
+  const map = new Map();
+  for (const s of seats) {
+    if (!map.has(s.buyerId)) map.set(s.buyerId, { buyerId: s.buyerId, fullName: s.fullName, socialUser: s.socialUser, phone: s.phone, seats: [], amountCop: 0, refundStatus: s.refundStatus || null });
+    const b = map.get(s.buyerId);
+    b.seats.push(s.seat); b.amountCop += s.amountCop || 0;
+    if (s.refundStatus === 'por_devolver') b.refundStatus = 'por_devolver';
+  }
+  return [...map.values()];
+}
+async function adminRouletteView(r) {
+  if (!r) return { exists: false };
+  const seats = await rouletteSeats(r.id);
+  const buyers = groupBuyers(seats);
+  const winnerSeat = r.status === 'sorteada' ? seats.find(s => s.seat === r.winnerSeat) : null;
+  const pending = seats.filter(s => s.refundStatus === 'por_devolver');
+  const done = seats.filter(s => s.refundStatus === 'devuelto');
+  return {
+    exists: true,
+    roulette: { ...publicRoulette(r), requireMin: Boolean(r.requireMin), prizeValueCop: r.prizeValueCop, cancelReason: r.cancelReason || '' },
+    bar: rouletteBar(r), buyers,
+    winner: winnerSeat ? { seat: winnerSeat.seat, fullName: winnerSeat.fullName, socialUser: winnerSeat.socialUser, phone: winnerSeat.phone } : null,
+    refunds: { pendingCop: pending.reduce((n, s) => n + (s.amountCop || 0), 0), doneCop: done.reduce((n, s) => n + (s.amountCop || 0), 0) }
+  };
+}
+const rouletteLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 400, standardHeaders: true, legacyHeaders: false });
+const openStatuses = ['abierta', 'cerrada'];
+
+app.get('/api/roulette', rouletteLimiter, async (_req, res, next) => {
+  try {
+    res.setHeader('Cache-Control', 'public, max-age=0, s-maxage=2, stale-while-revalidate=2');
+    res.json(publicRoulette(await getRoulette()));
+  } catch (err) { next(err); }
+});
+app.get('/api/roulette-image', async (_req, res, next) => {
+  try {
+    const snap = await db.collection('rouletteImage').doc('current').get();
+    if (!snap.exists) return res.status(404).end();
+    const d = snap.data();
+    res.setHeader('Content-Type', d.mimeType);
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    res.send(Buffer.from(d.data));
+  } catch (err) { next(err); }
+});
+
+app.get('/api/admin/roulette', requireAdmin, async (_req, res, next) => {
+  try { res.json(await adminRouletteView(await getRoulette())); } catch (err) { next(err); }
+});
+
+app.post('/api/admin/roulette', requireAdmin, async (req, res, next) => {
+  try {
+    const cur = await getRoulette();
+    if (cur && openStatuses.includes(cur.status)) return res.status(409).json({ error: 'Ya hay una ruleta en curso. Sortéala o cancélala antes de crear otra.' });
+    const cfg = parseRouletteConfig(req.body);
+    if (cfg.error) return res.status(400).json({ error: cfg.error });
+    if (cur) await db.collection('rouletteHistory').doc(cur.id).set(cur);
+    const r = { id: `rl-${Date.now()}`, status: 'abierta', occupied: [], createdAtIso: new Date().toISOString(), ...cfg.value, prizeImageVersion: null, spinVersion: 0 };
+    await rouletteRef().set(r);
+    await db.collection('rouletteImage').doc('current').delete();
+    res.status(201).json(await adminRouletteView(r));
+  } catch (err) { next(err); }
+});
+
+app.put('/api/admin/roulette', requireAdmin, async (req, res, next) => {
+  try {
+    const r = await getRoulette();
+    if (!r || !openStatuses.includes(r.status)) return res.status(409).json({ error: 'No hay una ruleta abierta para editar.' });
+    const cfg = parseRouletteConfig(req.body);
+    if (cfg.error) return res.status(400).json({ error: cfg.error });
+    const sold = r.occupied.length;
+    if (cfg.value.seats < sold) return res.status(409).json({ error: `Ya hay ${sold} puestos ocupados: no puedes dejar menos.` });
+    if (sold > 0 && cfg.value.priceCop !== r.priceCop) return res.status(409).json({ error: 'No se puede cambiar el precio cuando ya hay puestos vendidos.' });
+    await rouletteRef().set(cfg.value, { merge: true });
+    res.json(await adminRouletteView({ ...r, ...cfg.value }));
+  } catch (err) { next(err); }
+});
+
+app.post('/api/admin/roulette/image', requireAdmin, upload.single('image'), async (req, res, next) => {
+  try {
+    const r = await getRoulette();
+    if (!r) return res.status(409).json({ error: 'Primero crea la ruleta.' });
+    if (!req.file) return res.status(400).json({ error: 'Selecciona una imagen.' });
+    if (!['image/jpeg', 'image/png'].includes(req.file.mimetype) || !matchesSignature(req.file.buffer, req.file.mimetype)) {
+      return res.status(400).json({ error: 'La imagen del premio debe ser JPG o PNG.' });
+    }
+    if (req.file.buffer.length > MAX_RECEIPT_BYTES) return res.status(413).json({ error: 'La imagen pesa demasiado (máximo 800 KB).' });
+    const version = Date.now();
+    await db.collection('rouletteImage').doc('current').set({ mimeType: req.file.mimetype, data: req.file.buffer, version });
+    await rouletteRef().set({ prizeImageVersion: version }, { merge: true });
+    res.json({ ok: true, version });
+  } catch (err) { next(err); }
+});
+app.delete('/api/admin/roulette/image', requireAdmin, async (_req, res, next) => {
+  try {
+    if (!(await getRoulette())) return res.status(409).json({ error: 'No hay ruleta.' });
+    await db.collection('rouletteImage').doc('current').delete();
+    await rouletteRef().set({ prizeImageVersion: null }, { merge: true });
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+
+// Agrega a un seguidor (después de confirmar su pago). Cada puesto es un número; puede comprar varios.
+app.post('/api/admin/roulette/seats', requireAdmin, async (req, res, next) => {
+  try {
+    const r = await getRoulette();
+    if (!r || r.status !== 'abierta') return res.status(409).json({ error: 'Las inscripciones no están abiertas.' });
+    const fullName = cleanString(req.body.fullName, 120);
+    const socialUser = cleanString(req.body.socialUser, 80);
+    const phone = cleanString(req.body.phone, 10);
+    const quantity = Math.round(Number(req.body.quantity) || 1);
+    if (fullName.length < 3) return res.status(400).json({ error: 'Escribe el nombre completo del seguidor.' });
+    if (phone && !validPhone(phone)) return res.status(400).json({ error: 'El celular debe tener 10 dígitos (o déjalo vacío).' });
+    if (!(quantity >= 1 && quantity <= 100)) return res.status(400).json({ error: 'La cantidad de puestos debe estar entre 1 y 100.' });
+    const taken = new Set(r.occupied);
+    const free = [];
+    for (let n = 1; n <= r.seats && free.length < quantity; n++) if (!taken.has(n)) free.push(n);
+    if (free.length < quantity) return res.status(409).json({ error: `Solo quedan ${r.seats - taken.size} puestos libres.` });
+    const buyerId = crypto.randomUUID();
+    const addedAtIso = new Date().toISOString();
+    for (const seat of free) {
+      await db.collection('rouletteSeats').doc(`${r.id}-${seat}`).set({
+        id: `${r.id}-${seat}`, rouletteId: r.id, seat, buyerId, fullName, socialUser, phone,
+        amountCop: r.priceCop, addedAtIso, refundStatus: null
+      });
+    }
+    const occupied = [...r.occupied, ...free].sort((a, b) => a - b);
+    await rouletteRef().set({ occupied }, { merge: true });
+    res.status(201).json({ ok: true, seats: free, view: await adminRouletteView({ ...r, occupied }) });
+  } catch (err) { next(err); }
+});
+
+app.delete('/api/admin/roulette/seats/:seat', requireAdmin, async (req, res, next) => {
+  try {
+    const r = await getRoulette();
+    const seat = Number(req.params.seat);
+    if (!r || !openStatuses.includes(r.status)) return res.status(409).json({ error: 'Ya no se pueden quitar puestos.' });
+    if (!r.occupied.includes(seat)) return res.status(404).json({ error: 'Ese puesto no está ocupado.' });
+    await db.collection('rouletteSeats').doc(`${r.id}-${seat}`).delete();
+    const occupied = r.occupied.filter(n => n !== seat);
+    await rouletteRef().set({ occupied }, { merge: true });
+    res.json(await adminRouletteView({ ...r, occupied }));
+  } catch (err) { next(err); }
+});
+
+async function setRouletteStatus(res, from, to, errMsg) {
+  const r = await getRoulette();
+  if (!r || r.status !== from) return res.status(409).json({ error: errMsg });
+  await rouletteRef().set({ status: to }, { merge: true });
+  return res.json(await adminRouletteView({ ...r, status: to }));
+}
+app.post('/api/admin/roulette/close', requireAdmin, async (_req, res, next) => {
+  try { await setRouletteStatus(res, 'abierta', 'cerrada', 'Las inscripciones ya están cerradas o no hay ruleta.'); } catch (err) { next(err); }
+});
+app.post('/api/admin/roulette/reopen', requireAdmin, async (_req, res, next) => {
+  try { await setRouletteStatus(res, 'cerrada', 'abierta', 'Solo se pueden reabrir inscripciones cerradas.'); } catch (err) { next(err); }
+});
+
+app.post('/api/admin/roulette/spin', requireAdmin, async (_req, res, next) => {
+  try {
+    const r = await getRoulette();
+    if (!r || r.status !== 'cerrada') return res.status(409).json({ error: 'Cierra las inscripciones antes de girar la ruleta.' });
+    if (r.occupied.length < 2) return res.status(409).json({ error: 'Se necesitan al menos 2 puestos ocupados.' });
+    if (r.requireMin && rouletteBar(r).state === 'rojo') {
+      return res.status(409).json({ error: 'Lo recaudado no llega al valor del premio. Cancela el evento y devuelve el dinero, o desactiva la opción "solo se juega si se alcanza el mínimo".' });
+    }
+    const winnerSeat = r.occupied[crypto.randomInt(r.occupied.length)];
+    const now = Date.now();
+    const patch = { status: 'sorteada', winnerSeat, spinVersion: now, spinStartsAtIso: new Date(now + SPIN_LEAD_MS).toISOString(), winnerAtIso: new Date(now).toISOString() };
+    await rouletteRef().set(patch, { merge: true });
+    res.json(await adminRouletteView({ ...r, ...patch }));
+  } catch (err) { next(err); }
+});
+
+// Cancelar: todos los puestos pagados pasan a "por devolver".
+app.post('/api/admin/roulette/cancel', requireAdmin, async (req, res, next) => {
+  try {
+    const r = await getRoulette();
+    if (!r || !openStatuses.includes(r.status)) return res.status(409).json({ error: 'Solo se puede cancelar una ruleta que aún no se ha sorteado.' });
+    const seats = await rouletteSeats(r.id);
+    for (const s of seats) await db.collection('rouletteSeats').doc(s.id).set({ refundStatus: 'por_devolver' }, { merge: true });
+    const patch = { status: 'cancelada', cancelReason: cleanString(req.body && req.body.reason, 200), cancelledAtIso: new Date().toISOString() };
+    await rouletteRef().set(patch, { merge: true });
+    res.json(await adminRouletteView({ ...r, ...patch }));
+  } catch (err) { next(err); }
+});
+
+app.patch('/api/admin/roulette/buyers/:buyerId/refund', requireAdmin, async (req, res, next) => {
+  try {
+    const r = await getRoulette();
+    if (!r || r.status !== 'cancelada') return res.status(409).json({ error: 'Las devoluciones solo aplican a una ruleta cancelada.' });
+    if (!/^[0-9a-f-]{36}$/.test(req.params.buyerId)) return res.status(404).json({ error: 'Participante no encontrado.' });
+    const mine = (await rouletteSeats(r.id)).filter(s => s.buyerId === req.params.buyerId);
+    if (!mine.length) return res.status(404).json({ error: 'Participante no encontrado.' });
+    const done = req.body.done === true;
+    for (const s of mine) {
+      await db.collection('rouletteSeats').doc(s.id).set({ refundStatus: done ? 'devuelto' : 'por_devolver', refundedAtIso: done ? new Date().toISOString() : null }, { merge: true });
+    }
+    res.json(await adminRouletteView(r));
   } catch (err) { next(err); }
 });
 
