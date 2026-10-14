@@ -45,6 +45,9 @@ async function loadStatus() {
     document.querySelector('#brebLabel').textContent = s.brebLabel;
     document.querySelector('#brebValue').textContent = s.brebValue;
     clockState = { secs: toSeconds(s.time), at: Date.now() };
+    renderPrize(s.prize);
+    renderWinner(s.winner);
+    renderProfile(s.profile);
     applyClosed(s.closed);
     statusBox.textContent = s.closed
       ? `La jornada de hoy (${s.date}) cerró a las 7:00 p. m. Los registros no se trasladan al día siguiente: vuelve mañana con un nuevo registro y pago.`
@@ -57,6 +60,141 @@ async function loadStatus() {
   }
 }
 setInterval(tick, 1000);
+
+/* ---------- Premio ---------- */
+const copFmt = n => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n);
+function renderPrize(p) {
+  const box = document.querySelector('#prize');
+  if (!p) { box.classList.add('hidden'); return; }
+  box.classList.remove('hidden');
+  document.querySelector('#prizeName').textContent = p.name;
+  document.querySelector('#prizeDesc').textContent = p.description;
+  document.querySelector('#prizeDesc').classList.toggle('hidden', !p.description);
+  const picBox = document.querySelector('#prizePicBox');
+  const pic = document.querySelector('#prizePic');
+  picBox.classList.toggle('hidden', !p.imageVersion);
+  if (p.imageVersion) { const src = `/api/prize-image?v=${p.imageVersion}`; if (pic.getAttribute('src') !== src) pic.src = src; pic.alt = `Premio: ${p.name}`; }
+  const choice = document.querySelector('#prizeChoice');
+  document.querySelector('#prizeKicker').textContent = p.mode === 'ambos' ? 'Si ganas, tú eliges' : 'El premio de hoy';
+  const opt = (title, sub) => `<div class="opt"><b>${title}</b><span>${sub}</span></div>`;
+  choice.innerHTML = p.mode === 'premio' ? opt('El premio', 'Se entrega al ganador')
+    : p.mode === 'dinero' ? opt(copFmt(p.cashCop), 'En efectivo para el ganador')
+    : opt('El premio', 'Tal como se ve aquí') + '<span class="or">o</span>' + opt(copFmt(p.cashCop), 'En efectivo');
+}
+
+/* ---------- Número ganador: burbujas que se revientan ---------- */
+let winnerKey = '', popped = 0, audioCtx = null;
+const bubblesBox = document.querySelector('#bubbles');
+function popSound() {
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    const t = audioCtx.currentTime, o = audioCtx.createOscillator(), g = audioCtx.createGain();
+    o.type = 'sine'; o.frequency.setValueAtTime(520 + Math.random() * 260, t); o.frequency.exponentialRampToValueAtTime(90, t + 0.12);
+    g.gain.setValueAtTime(0.18, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.13);
+    o.connect(g).connect(audioCtx.destination); o.start(t); o.stop(t + 0.14);
+  } catch { /* sin sonido */ }
+}
+function fmtLongDate(iso) {
+  const [y, m, d] = iso.split('-').map(Number);
+  return new Intl.DateTimeFormat('es-CO', { day: 'numeric', month: 'long', timeZone: 'UTC' }).format(new Date(Date.UTC(y, m - 1, d)));
+}
+function buildBubbles(w) {
+  bubblesBox.innerHTML = '';
+  popped = 0;
+  document.querySelector('#winnerResult').classList.add('hidden');
+  document.querySelector('#replayBubbles').classList.add('hidden');
+  document.querySelector('#popAll').disabled = false;
+  for (let i = 0; i < 5; i++) {
+    const cell = document.createElement('div');
+    cell.className = 'bcell';
+    cell.innerHTML = '<div class="bdigit" aria-hidden="true">?</div>' +
+      `<button type="button" class="bubble" style="--d:${i * 0.35}s" aria-label="Reventar burbuja ${i + 1} de 5"></button>`;
+    cell.querySelector('.bubble').addEventListener('click', () => popBubble(cell, w));
+    bubblesBox.appendChild(cell);
+  }
+}
+function popBubble(cell, w, silent) {
+  const btn = cell.querySelector('.bubble');
+  if (!btn || btn.disabled) return;
+  btn.disabled = true;
+  const idx = [...bubblesBox.children].indexOf(cell);
+  const digit = cell.querySelector('.bdigit');
+  digit.textContent = w.number[idx]; digit.setAttribute('aria-hidden', 'false');
+  digit.classList.add('shown');
+  if (!reduceMotion) {
+    btn.classList.add('pop');
+    for (let k = 0; k < 12; k++) {
+      const drop = document.createElement('i');
+      const ang = (k / 12) * 6.283 + Math.random() * 0.4, dist = 46 + Math.random() * 34;
+      drop.style.setProperty('--x', `${Math.cos(ang) * dist}px`); drop.style.setProperty('--y', `${Math.sin(ang) * dist}px`);
+      cell.appendChild(drop); setTimeout(() => drop.remove(), 700);
+    }
+    setTimeout(() => btn.remove(), 260);
+  } else btn.remove();
+  if (!silent) popSound();
+  popped++;
+  const left = 5 - popped;
+  document.querySelector('#winnerSub').textContent = left ? `Faltan ${left} ${left === 1 ? 'burbuja' : 'burbujas'} por reventar.` : 'Este es el número ganador.';
+  if (!left) finishReveal(w);
+}
+function finishReveal(w) {
+  document.querySelector('#popAll').disabled = true;
+  document.querySelector('#replayBubbles').classList.remove('hidden');
+  const res = document.querySelector('#winnerResult');
+  res.innerHTML = `¡Felicitaciones al ganador! Si tu número es <b>${w.number}</b>, escríbenos para entregarte tu premio. Gracias a toda la comunidad por apoyar.`;
+  res.classList.remove('hidden');
+  setTimeout(launchConfetti, reduceMotion ? 0 : 250);
+}
+function renderWinner(w) {
+  const box = document.querySelector('#winner');
+  if (!w) { box.classList.add('hidden'); winnerKey = ''; return; }
+  box.classList.remove('hidden');
+  const key = `${w.number}-${w.version}`;
+  document.querySelector('#winnerTitle').textContent = w.date ? `¡Ya tenemos número ganador del ${fmtLongDate(w.date)}!` : '¡Ya tenemos número ganador!';
+  if (key === winnerKey) return; // no reiniciar si el usuario ya está reventando burbujas
+  winnerKey = key;
+  document.querySelector('#winnerSub').textContent = 'Toca cada burbuja para revelar el número, o revienta todas de una vez.';
+  buildBubbles(w);
+  currentWinner = w;
+}
+let currentWinner = null;
+document.querySelector('#popAll').addEventListener('click', () => {
+  if (!currentWinner) return;
+  popSound();
+  [...bubblesBox.children].forEach((cell, i) => setTimeout(() => popBubble(cell, currentWinner, true), reduceMotion ? 0 : i * 170));
+});
+document.querySelector('#replayBubbles').addEventListener('click', () => {
+  if (!currentWinner) return;
+  document.querySelector('#winnerSub').textContent = 'Toca cada burbuja para revelar el número, o revienta todas de una vez.';
+  buildBubbles(currentWinner);
+});
+
+/* ---------- Quiénes somos e historial ---------- */
+function renderProfile(p) {
+  const box = document.querySelector('#about');
+  if (!p) { box.classList.add('hidden'); return; }
+  box.classList.remove('hidden');
+  document.querySelector('#aboutName').textContent = p.name;
+  const bio = document.querySelector('#aboutBio');
+  bio.textContent = p.bio; bio.classList.toggle('hidden', !p.bio);
+  const links = document.querySelector('#aboutLinks');
+  links.innerHTML = '';
+  p.links.forEach(l => {
+    const a = document.createElement('a');
+    a.href = l.url; a.textContent = l.label; a.target = '_blank'; a.rel = 'noopener nofollow';
+    links.appendChild(a);
+  });
+}
+async function loadHistory() {
+  try {
+    const res = await fetch('/api/winners');
+    if (!res.ok) return;
+    const { winners } = await res.json();
+    const box = document.querySelector('#history');
+    box.classList.toggle('hidden', !winners.length);
+    document.querySelector('#historyList').innerHTML = winners.map(w => `<li><span>${fmtLongDate(w.date)}</span><b>${w.number}</b></li>`).join('');
+  } catch { /* sin historial */ }
+}
 
 /* ---------- Copiar llave ---------- */
 document.querySelector('#copyKey').addEventListener('click', async e => {
@@ -213,3 +351,4 @@ form.addEventListener('submit', async e => {
   }
 });
 loadStatus();
+loadHistory();

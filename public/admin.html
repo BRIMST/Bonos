@@ -30,7 +30,9 @@
 
     <nav class="tabs" role="tablist" aria-label="Secciones del panel">
       <button class="tab active" role="tab" id="tab-registros" aria-selected="true" aria-controls="view-registros" data-tab="registros">Registros <span class="badge hidden" id="pendingBadge">0</span></button>
+      <button class="tab" role="tab" id="tab-ganador" aria-selected="false" aria-controls="view-ganador" data-tab="ganador">Número ganador</button>
       <button class="tab" role="tab" id="tab-premio" aria-selected="false" aria-controls="view-premio" data-tab="premio">Premio</button>
+      <button class="tab" role="tab" id="tab-perfil" aria-selected="false" aria-controls="view-perfil" data-tab="perfil">Perfil y QR</button>
       <button class="tab" role="tab" id="tab-ajustes" aria-selected="false" aria-controls="view-ajustes" data-tab="ajustes">Pago y contraseña</button>
     </nav>
 
@@ -75,6 +77,25 @@
       <p id="tableMessage" class="small"></p>
     </section>
 
+    <!-- Número ganador -->
+    <section class="panel view hidden" id="view-ganador" role="tabpanel" aria-labelledby="tab-ganador">
+      <h2>Número ganador del día</h2>
+      <p class="small">Publica el número según el resultado oficial de la Quinta. Al publicarlo aparece arriba en la página pública, cubierto por 5 burbujas que cada persona revienta para descubrir el número, una por una o todas a la vez.</p>
+      <div class="winner-current hidden" id="winnerCurrent">
+        <span>Publicado ahora en la página</span>
+        <div class="digits" id="winnerDigits"></div>
+        <p id="winnerCurrentDate"></p>
+        <button type="button" class="secondary" id="winnerRemove">Quitar de la página</button>
+      </div>
+      <form id="winnerForm" class="winner-form">
+        <label>Número ganador (5 cifras)<input name="number" class="winner-input" inputmode="numeric" maxlength="5" minlength="5" pattern="[0-9]{5}" placeholder="00523" autocomplete="off" required></label>
+        <label>Jornada del sorteo<input name="date" type="date"></label>
+        <button class="primary">Publicar número ganador</button>
+        <p id="winnerMessage" class="notice" role="status"></p>
+      </form>
+      <div class="matches hidden" id="winnerMatches"></div>
+    </section>
+
     <!-- 2. Premio -->
     <section class="panel view hidden" id="view-premio" role="tabpanel" aria-labelledby="tab-premio">
       <h2>Premio del sorteo</h2>
@@ -103,6 +124,33 @@
           </div>
         </div>
       </form>
+    </section>
+
+    <!-- Perfil y QR -->
+    <section class="panel view hidden" id="view-perfil" role="tabpanel" aria-labelledby="tab-perfil">
+      <div class="two-col">
+        <form id="profileForm">
+          <h2>Quiénes somos</h2>
+          <p class="small">Se muestra al final de la página pública y genera confianza. Si dejas el nombre vacío, la sección no aparece.</p>
+          <label>Tu nombre o el de tu comunidad<input name="name" maxlength="80" placeholder="Ej. Bryan G."></label>
+          <label>Cuéntales quién eres (opcional)<textarea name="bio" maxlength="500" rows="4" placeholder="Ej. Creador de contenido. Con tu apoyo seguimos haciendo directos y apoyando a la comunidad."></textarea></label>
+          <div id="linkRows" class="link-rows"></div>
+          <button class="primary">Guardar perfil</button>
+          <p id="profileMessage" class="notice" role="status"></p>
+        </form>
+        <div class="qr-box">
+          <h2>Código QR</h2>
+          <p class="small">Tus seguidores lo escanean con el celular para entrar a la página. Ponlo en tus videos, transmisiones o publicaciones.</p>
+          <label>Dirección que abre el QR<input id="qrUrl" type="url" placeholder="https://tu-dominio.com"></label>
+          <p class="small">Si ya tienes dominio propio, escríbelo aquí para que el QR apunte a él.</p>
+          <div class="qr-preview"><img id="qrImg" alt="Código QR de la página" width="260" height="260"></div>
+          <div class="control-group">
+            <button type="button" class="secondary" id="qrUpdate">Actualizar QR</button>
+            <a class="primary link-btn" id="qrPng" href="#" download>Descargar PNG</a>
+            <a class="secondary link-btn" id="qrSvg" href="#" download>Descargar SVG</a>
+          </div>
+        </div>
+      </div>
     </section>
 
     <!-- 3. Pago y contraseña -->

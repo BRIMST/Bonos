@@ -118,7 +118,7 @@ function render() {
     <td data-label="Hora">${esc(r.createdTimeBogota)}<br><span class="small">${esc(r.createdDateBogota)}</span></td>
     <td data-label="Participante"><b>${esc(r.fullName)}</b><br><span class="small">${esc(r.socialUser)}</span><br><span class="small">${esc(r.phone)}</span></td>
     <td data-label="Número" class="number">${esc(r.number)}</td>
-    <td data-label="Estado"><span class="pill ${PILL[r.participationStatus] || 'warn'}">${esc(LABELS[r.participationStatus] || 'Por revisar')}</span></td>
+    <td data-label="Estado"><span class="pill ${PILL[r.participationStatus] || 'warn'}">${esc(LABELS[r.participationStatus] || 'Por revisar')}</span>${r.duplicateReceipt ? '<br><span class="pill dup" title="Este comprobante ya se había enviado antes">Comprobante repetido</span>' : ''}</td>
     <td data-label="Acciones" class="actions"><button type="button" class="secondary small-btn" data-view="${esc(r.id)}">Ver comprobante</button>${actionButtons(r)}</td>
   </tr>`).join('');
   $('#tableMessage').textContent = `Mostrando ${list.length} de ${records.length}.`;
@@ -167,6 +167,7 @@ async function openReceipt(id, trigger) {
   $('#modalSub').textContent = `Número ${r.number}, ${r.socialUser}, ${r.phone}. Estado: ${LABELS[r.participationStatus] || 'Por revisar'}.`;
   $('#modalBody').innerHTML = '<p class="small">Cargando comprobante…</p>';
   $('#modalActions').innerHTML = actionButtons(r);
+  const dupNote = r.duplicateReceipt ? '<p class="dup-warn">Atención: este mismo comprobante ya se había enviado en otro registro.</p>' : '';
   modal.classList.remove('hidden'); document.body.style.overflow = 'hidden';
   $('#modalClose').focus();
   try {
@@ -176,9 +177,9 @@ async function openReceipt(id, trigger) {
     if (type.startsWith('image/')) {
       const blob = await res.blob();
       const url = await new Promise(ok => { const fr = new FileReader(); fr.onload = () => ok(fr.result); fr.readAsDataURL(blob); });
-      $('#modalBody').innerHTML = `<img src="${url}" alt="Comprobante de ${esc(r.fullName)}">`;
+      $('#modalBody').innerHTML = `${dupNote}<img src="${url}" alt="Comprobante de ${esc(r.fullName)}">`;
     } else {
-      $('#modalBody').innerHTML = `<p>El comprobante es un PDF.</p><a class="primary link-btn" target="_blank" rel="noopener" href="/api/admin/receipt/${encodeURIComponent(id)}">Abrir PDF en otra pestaña</a>`;
+      $('#modalBody').innerHTML = `${dupNote}<p>El comprobante es un PDF.</p><a class="primary link-btn" target="_blank" rel="noopener" href="/api/admin/receipt/${encodeURIComponent(id)}">Abrir PDF en otra pestaña</a>`;
     }
   } catch (err) { $('#modalBody').innerHTML = `<p class="notice error">${esc(err.message)}</p>`; }
 }
@@ -201,6 +202,8 @@ async function loadSettings() {
     brebForm.brebLabel.value = st.brebLabel;
     brebForm.brebValue.value = st.brebValue;
     fillPrize(st.prize);
+    showWinner(st.winner);
+    fillProfile(st.profile);
   } catch (err) { flash($('#brebMessage'), err.message, 'error'); }
 }
 brebForm.addEventListener('submit', async e => {
@@ -288,6 +291,84 @@ $('#prizeImageRemove').addEventListener('click', async () => {
   const msg = $('#prizeImageMessage');
   try { await api('/api/admin/prize/image', { method: 'DELETE' }); showPrizeImage(null); flash(msg, 'Imagen eliminada.', 'success'); }
   catch (err) { flash(msg, err.message, 'error'); }
+});
+
+/* ---------- Número ganador ---------- */
+const winnerForm = $('#winnerForm');
+const fmtDay = iso => { const [y, m, d] = iso.split('-').map(Number); return new Intl.DateTimeFormat('es-CO', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(Date.UTC(y, m - 1, d))); };
+winnerForm.number.addEventListener('input', e => { e.target.value = e.target.value.replace(/\D/g, '').slice(0, 5); });
+async function showWinner(w) {
+  const box = $('#winnerCurrent'), matches = $('#winnerMatches');
+  if (!w) { box.classList.add('hidden'); matches.classList.add('hidden'); if (!winnerForm.date.value && statusInfo) winnerForm.date.value = statusInfo.date; return; }
+  box.classList.remove('hidden');
+  $('#winnerDigits').innerHTML = [...w.number].map(d => `<div class="digit">${esc(d)}</div>`).join('');
+  $('#winnerCurrentDate').textContent = w.date ? `Jornada del ${fmtDay(w.date)}` : '';
+  winnerForm.date.value = w.date || winnerForm.date.value;
+  try {
+    const data = await api(`/api/admin/registrations?date=${encodeURIComponent(w.date)}`);
+    const same = data.records.filter(r => r.number === w.number);
+    const ok = same.filter(r => r.participationStatus === 'aceptada');
+    const open = same.filter(r => r.participationStatus === 'pendiente_verificacion').length;
+    matches.classList.remove('hidden');
+    matches.innerHTML = `<h3>${ok.length ? `Participantes aceptados con el ${esc(w.number)} (${ok.length})` : 'Sin ganador entre los participantes aceptados'}</h3>` +
+      (ok.length ? `<ul>${ok.map(r => `<li><b>${esc(r.fullName)}</b><span class="small">${esc(r.socialUser)}</span><span class="small">Celular ${esc(r.phone)}</span></li>`).join('')}</ul>`
+        : '<p class="small">Nadie con pago verificado eligió este número.</p>') +
+      (open ? `<p class="small">Hay ${open} registro(s) con este número que siguen por revisar y no participan si la jornada ya cerró.</p>` : '');
+  } catch { matches.classList.add('hidden'); }
+}
+winnerForm.addEventListener('submit', async e => {
+  e.preventDefault();
+  const msg = $('#winnerMessage'), number = winnerForm.number.value;
+  if (!/^\d{5}$/.test(number)) return flash(msg, 'Escribe las 5 cifras del número ganador.', 'error');
+  if (!confirm(`¿Publicar el ${number} como número ganador? Todos podrán verlo en la página pública al reventar las burbujas.`)) return;
+  try {
+    await api('/api/admin/winner', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ number, date: winnerForm.date.value }) });
+    flash(msg, 'Número ganador publicado. Ya aparece con las burbujas en la página pública.', 'success');
+    winnerForm.number.value = '';
+    await loadSettings();
+  } catch (err) { flash(msg, err.message, 'error'); }
+});
+$('#winnerRemove').addEventListener('click', async () => {
+  if (!confirm('¿Quitar el número ganador de la página pública?')) return;
+  try { await api('/api/admin/winner', { method: 'DELETE' }); flash($('#winnerMessage'), 'Número ganador retirado de la página.', 'success'); await loadSettings(); }
+  catch (err) { flash($('#winnerMessage'), err.message, 'error'); }
+});
+
+/* ---------- Perfil y QR ---------- */
+const profileForm = $('#profileForm');
+function linkRowHtml(i, l) {
+  return `<div class="link-row"><input data-lbl="${i}" maxlength="40" placeholder="Nombre (ej. Instagram)" value="${esc(l.label || '')}"><input data-url="${i}" type="url" maxlength="300" placeholder="https://instagram.com/tu_usuario" value="${esc(l.url || '')}"></div>`;
+}
+function fillProfile(p) {
+  profileForm.name.value = p.name || '';
+  profileForm.bio.value = p.bio || '';
+  const links = [...(p.links || [])];
+  while (links.length < 4) links.push({});
+  $('#linkRows').innerHTML = links.slice(0, 5).map((l, i) => linkRowHtml(i, l)).join('');
+  setQr(qrInput.value || '');
+}
+profileForm.addEventListener('submit', async e => {
+  e.preventDefault();
+  const msg = $('#profileMessage');
+  const links = [...document.querySelectorAll('#linkRows .link-row')].map(r => ({ label: r.querySelector('[data-lbl]').value, url: r.querySelector('[data-url]').value }));
+  try {
+    await api('/api/admin/profile', { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: profileForm.name.value, bio: profileForm.bio.value, links }) });
+    flash(msg, 'Perfil guardado. Ya se ve en la página pública.', 'success');
+  } catch (err) { flash(msg, err.message, 'error'); }
+});
+const qrInput = $('#qrUrl');
+function setQr(url) {
+  const q = url ? `?url=${encodeURIComponent(url)}` : '';
+  const stamp = (q ? '&' : '?') + 't=' + Date.now();
+  $('#qrImg').src = `/api/admin/qr.png${q}${stamp}`;
+  $('#qrPng').href = `/api/admin/qr.png${q}${q ? '&' : '?'}download=1`;
+  $('#qrSvg').href = `/api/admin/qr.svg${q}${q ? '&' : '?'}download=1`;
+}
+$('#qrUpdate').addEventListener('click', () => {
+  const v = qrInput.value.trim();
+  if (v && !/^https?:\/\//i.test(v)) return toast('Escribe la dirección completa, empezando por https://', 'bad');
+  setQr(v);
 });
 
 checkSession();

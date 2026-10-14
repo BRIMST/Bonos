@@ -4,6 +4,10 @@
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#123b72">
   <title>Juntos Sumamos · Cada aporte cuenta</title>
+  <meta name="description" content="Juntos Sumamos: un bono donativo voluntario para apoyar a la comunidad. Cada aporte cuenta.">
+  <meta property="og:type" content="website"><meta property="og:locale" content="es_CO">
+  <meta property="og:title" content="Juntos Sumamos · Cada aporte cuenta">
+  <meta property="og:description" content="Un bono donativo voluntario para apoyar a la comunidad. Gracias por tu apoyo.">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%231a1446'/%3E%3Ctext x='16' y='23' font-size='20' font-weight='900' text-anchor='middle' fill='%23ffc82e' font-family='Arial'%3EB%3C/text%3E%3C/svg%3E">
   <link rel="stylesheet" href="/styles.css">
   <script defer src="/app.js"></script>
@@ -15,6 +19,37 @@
       <source type="image/webp" srcset="/banner-800.webp 800w, /banner-1600.webp 1600w" sizes="(min-width: 1072px) 1040px, calc(100vw - 32px)">
       <img src="/banner-1600.jpg" srcset="/banner-800.jpg 800w, /banner-1600.jpg 1600w" sizes="(min-width: 1072px) 1040px, calc(100vw - 32px)" width="1600" height="901" alt="Donaciones de la comunidad. ¡Gracias por tu apoyo!" fetchpriority="high">
     </picture>
+
+    <section class="winner hidden" id="winner" aria-labelledby="winnerTitle">
+      <h2 id="winnerTitle">¡Ya tenemos número ganador!</h2>
+      <p class="winner-src">Según el resultado de la Quinta, a nivel nacional.</p>
+      <p class="winner-sub" id="winnerSub">Toca cada burbuja para revelar el número, o revienta todas de una vez.</p>
+      <div class="bubbles" id="bubbles"></div>
+      <div class="winner-actions">
+        <button type="button" class="primary" id="popAll">Reventar todas</button>
+        <button type="button" class="secondary on-dark hidden" id="replayBubbles">Volver a cubrir</button>
+      </div>
+      <p class="winner-result hidden" id="winnerResult" role="status"></p>
+    </section>
+
+    <section class="prize hidden" id="prize" aria-labelledby="prizeName">
+      <div class="prize-pic hidden" id="prizePicBox"><img id="prizePic" alt="" width="640" height="640"></div>
+      <div class="prize-body">
+        <p class="prize-kicker" id="prizeKicker">El premio de hoy</p>
+        <h2 id="prizeName"></h2>
+        <p id="prizeDesc"></p>
+        <div class="choice" id="prizeChoice"></div>
+      </div>
+    </section>
+
+    <section class="how" aria-labelledby="howTitle">
+      <h2 id="howTitle">Es un bono donativo para apoyar a la comunidad</h2>
+      <ul>
+        <li><b>Tu aporte es voluntario.</b> Los $5.000 ayudan a que la comunidad siga creciendo.</li>
+        <li><b>Como agradecimiento,</b> tu número de 5 cifras participa por el premio del día.</li>
+        <li><b>El número ganador sale de la Quinta,</b> que se juega a nivel nacional. Aquí no se hace ningún sorteo propio.</li>
+      </ul>
+    </section>
 
     <section class="hero">
       <h1>Cada aporte cuenta</h1>
@@ -29,15 +64,6 @@
       <div id="status" class="notice" role="status">Consultando hora de cierre…</div>
     </section>
 
-    <section class="prize hidden" id="prize" aria-labelledby="prizeName">
-      <div class="prize-pic hidden" id="prizePicBox"><img id="prizePic" alt="" width="640" height="640"></div>
-      <div class="prize-body">
-        <p class="prize-kicker" id="prizeKicker">El premio de hoy</p>
-        <h2 id="prizeName"></h2>
-        <p id="prizeDesc"></p>
-        <div class="choice" id="prizeChoice"></div>
-      </div>
-    </section>
 
     <ol class="steps">
       <li>Haz tu aporte de $5.000 a la llave de pago</li>
@@ -78,13 +104,25 @@
           <span class="small">Las imágenes se reducen automáticamente. Un PDF debe pesar menos de 780 KB.</span>
         </label>
         <label class="terms"><input name="acceptedTerms" type="checkbox" required>
-          <span>Acepto que este es un bono de contribución voluntaria, certifico que soy mayor de edad y estoy de acuerdo con los términos del incentivo diario. Entiendo que mi registro solo es válido para la jornada de hoy si mi pago se verifica antes de las 7:00 PM. Entiendo que la participación de mi número es válida solo para el evento de hoy. En caso de empate, recibiré mi premio completo sin divisiones.</span>
+          <span>Acepto que este es un bono de contribución voluntaria, certifico que soy mayor de edad y estoy de acuerdo con los términos del incentivo diario. Entiendo que mi registro solo es válido para la jornada de hoy si mi pago se verifica antes de las 7:00 PM. Entiendo que la participación de mi número es válida solo para el evento de hoy. En caso de empate, recibiré mi premio completo sin divisiones. Autorizo el tratamiento de mis datos personales según la <a href="/legal.html#privacidad" target="_blank" rel="noopener">política de privacidad</a> y declaro haber leído los <a href="/legal.html#terminos" target="_blank" rel="noopener">términos de participación</a>.</span>
         </label>
         <button class="primary" id="submitBtn" type="submit">Enviar registro</button>
         <p id="formMessage" class="notice" role="status" aria-live="polite"></p>
       </form>
     </section>
-    <p class="legal small">Antes de operar, publica términos completos, reglas de verificación y fuente oficial del resultado, y verifica las autorizaciones legales aplicables en Colombia. No se garantiza un premio por el solo envío del formulario.</p>
+    <section class="history hidden" id="history" aria-labelledby="historyTitle">
+      <h2 id="historyTitle">Números ganadores anteriores</h2>
+      <ul id="historyList"></ul>
+    </section>
+
+    <section class="about hidden" id="about" aria-labelledby="aboutTitle">
+      <h2 id="aboutTitle">Quiénes somos</h2>
+      <p id="aboutName" class="about-name"></p>
+      <p id="aboutBio"></p>
+      <div class="about-links" id="aboutLinks"></div>
+    </section>
+
+    <p class="legal small">El aporte es voluntario y apoya a la comunidad. El número ganador corresponde al resultado de la Quinta, que se juega a nivel nacional; este sitio no realiza sorteos propios. Enviar el formulario no garantiza un premio: tu número participa solo si tu pago queda verificado antes de las 7:00 p. m.</p>
   </main>
 
   <canvas id="confetti" aria-hidden="true"></canvas>
@@ -102,6 +140,6 @@
       <button type="button" class="primary" id="closeSuccess">Listo</button>
     </div>
   </div>
-  <footer><div class="wrap">Juntos Sumamos · Hora de referencia: Colombia (Bogotá)</div></footer>
+  <footer><div class="wrap">Juntos Sumamos · Hora de referencia: Colombia (Bogotá) · <a href="/legal.html#privacidad">Privacidad</a> · <a href="/legal.html#terminos">Términos</a></div></footer>
 </body>
 </html>
