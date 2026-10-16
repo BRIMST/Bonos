@@ -28,6 +28,7 @@
   <div id="app" class="hidden">
     <section class="panel event-panel" id="eventPanel" aria-live="polite">
       <div class="event-info">
+        <p class="event-kicker">Evento del Bono de la Quinta</p>
         <span class="chip" id="eventChip">Cargando…</span>
         <div class="event-count" id="eventCount" role="timer">--:--:--</div>
         <p class="small" id="eventDetail"></p>
@@ -39,10 +40,10 @@
     </section>
 
     <nav class="tabs" role="tablist" aria-label="Secciones del panel">
-      <button class="tab active" role="tab" id="tab-registros" aria-selected="true" aria-controls="view-registros" data-tab="registros">Registros <span class="badge hidden" id="pendingBadge">0</span></button>
-      <button class="tab" role="tab" id="tab-ruleta" aria-selected="false" aria-controls="view-ruleta" data-tab="ruleta">Ruleta</button>
-      <button class="tab" role="tab" id="tab-ganador" aria-selected="false" aria-controls="view-ganador" data-tab="ganador">Número ganador</button>
-      <button class="tab" role="tab" id="tab-premio" aria-selected="false" aria-controls="view-premio" data-tab="premio">Premio</button>
+      <button class="tab active" role="tab" id="tab-registros" aria-selected="true" aria-controls="view-registros" data-tab="registros">Quinta · Registros <span class="badge hidden" id="pendingBadge">0</span></button>
+      <button class="tab" role="tab" id="tab-ruleta" aria-selected="false" aria-controls="view-ruleta" data-tab="ruleta">Ruleta de Seguidores</button>
+      <button class="tab" role="tab" id="tab-ganador" aria-selected="false" aria-controls="view-ganador" data-tab="ganador">Quinta · Ganador</button>
+      <button class="tab" role="tab" id="tab-premio" aria-selected="false" aria-controls="view-premio" data-tab="premio">Quinta · Premio</button>
       <button class="tab" role="tab" id="tab-perfil" aria-selected="false" aria-controls="view-perfil" data-tab="perfil">Perfil y QR</button>
       <button class="tab" role="tab" id="tab-ajustes" aria-selected="false" aria-controls="view-ajustes" data-tab="ajustes">Pago y contraseña</button>
     </nav>
@@ -91,7 +92,7 @@
       <div id="rlSummary" class="rl-summary hidden">
         <div class="rl-top">
           <div><span class="chip" id="rlChip"></span> <b id="rlName"></b></div>
-          <a class="small" id="rlLive" href="/ruleta.html" target="_blank" rel="noopener">Abrir pantalla del live ↗</a>
+          <span class="rl-links"><a class="small" id="rlLive" href="/ruleta.html" target="_blank" rel="noopener">Pantalla del live ↗</a> · <a class="small" href="/ruleta.html?demo=1" target="_blank" rel="noopener">Hacer un ensayo ↗</a> · <a class="small" id="rlActa" href="/api/admin/roulette/acta.csv" download>Descargar acta</a></span>
         </div>
         <div class="rl-bar-wrap" aria-label="Barra de recaudo">
           <div class="rl-bar"><i id="rlFill"></i><span class="rl-mark" id="rlMark" title="Valor del premio"></span></div>
@@ -104,6 +105,7 @@
         </div>
         <div class="rl-actions" id="rlActions"></div>
         <div class="rl-winner hidden" id="rlWinner"></div>
+        <p class="small">Para el live: comparte en tu transmisión la <b>Pantalla del live</b> y gira desde aquí. Tu panel no muestra el ganador hasta que termina la animación.</p>
         <p class="notice" id="rlMessage" role="status"></p>
       </div>
 
@@ -137,6 +139,16 @@
             <label>Cantidad de puestos<input name="quantity" type="number" inputmode="numeric" min="1" max="100" value="1" required></label>
             <button class="primary">Agregar a la ruleta</button>
           </form>
+        </div>
+      </div>
+
+      <div id="rlHistory" class="hidden">
+        <h2>Historial de ganadores</h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Fecha</th><th>Premio</th><th>Puesto</th><th>Ganador</th><th>Entrega</th></tr></thead>
+            <tbody id="rlHistRows"></tbody>
+          </table>
         </div>
       </div>
 

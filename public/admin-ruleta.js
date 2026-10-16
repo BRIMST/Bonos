@@ -5,16 +5,27 @@
   let view = null;
   const STATUS = { abierta: ['Inscripciones abiertas', 'ok'], cerrada: ['Inscripciones cerradas', 'warn'], sorteada: ['Sorteada', 'ok'], cancelada: ['Cancelada', 'bad'] };
 
-  async function load() {
+  let load = async function () {
     try { view = await api('/api/admin/roulette'); render(); }
     catch (err) { flash($('#rlMessage'), err.message, 'error'); }
-  }
+  };
+  let srvOffset = 0, revealTimer = 0;
+  const nowMs = () => Date.now() + srvOffset;
+  // Mientras gira la ruleta, el panel no muestra al ganador (para no adelantarlo si compartes pantalla).
+  const revealAtMs = () => (view && view.exists && view.roulette.status === 'sorteada' && view.roulette.spinStartsAtIso)
+    ? Date.parse(view.roulette.spinStartsAtIso) + view.roulette.spinMs + 600 : 0;
+  const revealing = () => nowMs() < revealAtMs();
   function money(n) { return (n < 0 ? '−' : n > 0 ? '+' : '') + copFmt(Math.abs(n)); }
 
   function render() {
     const has = view && view.exists, r = has && view.roulette;
+    if (has) srvOffset = Date.parse(r.serverNowIso) - Date.now();
+    const hide = has && revealing();
+    clearTimeout(revealTimer);
+    if (hide) revealTimer = setTimeout(() => { render(); loadHistory(); }, revealAtMs() - nowMs() + 200);
     const open = has && ['abierta', 'cerrada'].includes(r.status);
     $('#rlSummary').classList.toggle('hidden', !has);
+    if (has) $('#rlActa').href = `/api/admin/roulette/acta.csv?id=${encodeURIComponent(r.id)}`;
     $('#rlFormTitle').textContent = open ? 'Editar ruleta' : 'Crear ruleta';
     $('#rlSave').textContent = open ? 'Guardar cambios' : 'Crear nueva ruleta';
     $('#rlImgBox').classList.toggle('hidden', !has);
@@ -30,7 +41,7 @@
     }
     showImg(r.prize.imageVersion);
 
-    const [label, kind] = STATUS[r.status] || ['', ''];
+    const [label, kind] = hide ? ['Girando…', 'warn'] : (STATUS[r.status] || ['', '']);
     const chip = $('#rlChip'); chip.textContent = label; chip.className = `chip ${kind === 'ok' ? 'ok' : kind === 'bad' ? 'bad' : 'warn'}`;
     $('#rlName').textContent = r.name;
 
@@ -53,7 +64,10 @@
     $('#rlActions').innerHTML = acts.map(([k, t, c]) => `<button type="button" class="${c}" data-act="${k}">${t}</button>`).join('');
 
     const w = $('#rlWinner');
-    if (view.winner) {
+    if (hide) {
+      w.classList.remove('hidden');
+      w.innerHTML = '<span>La ruleta está girando en la pantalla del live…</span><p>El ganador se mostrará aquí cuando termine la animación.</p>';
+    } else if (view.winner) {
       w.classList.remove('hidden');
       w.innerHTML = `<span>Puesto ganador</span><b>#${esc(view.winner.seat)}</b><p><b>${esc(view.winner.fullName)}</b>${view.winner.socialUser ? ' · ' + esc(view.winner.socialUser) : ''}${view.winner.phone ? '<br>Celular ' + esc(view.winner.phone) : ''}</p>`;
     } else if (r.status === 'cancelada') {
@@ -66,7 +80,7 @@
       if (r.status === 'cancelada') act = by.refundStatus === 'devuelto'
         ? `<span class="pill ok">Devuelto</span> <button type="button" class="secondary small-btn" data-refund="${esc(by.buyerId)}" data-done="0">Deshacer</button>`
         : `<span class="pill warn">Por devolver</span> <button type="button" class="ok-btn small-btn" data-refund="${esc(by.buyerId)}" data-done="1">Marcar devuelto</button>`;
-      else if (r.status === 'sorteada') act = by.seats.includes(r.winnerSeat) ? '<span class="pill ok">Ganador</span>' : '';
+      else if (r.status === 'sorteada') act = (!hide && by.seats.includes(r.winnerSeat)) ? '<span class="pill ok">Ganador</span>' : '';
       const seats = by.seats.map(n => `<span class="seat-chip">${n}${open ? `<button type="button" aria-label="Quitar puesto ${n}" data-del="${n}">×</button>` : ''}</span>`).join('');
       return `<tr><td data-label="Participante"><b>${esc(by.fullName)}</b><br><span class="small">${esc(by.socialUser || '')} ${esc(by.phone || '')}</span></td>
         <td data-label="Puestos">${seats}</td><td data-label="Aporte">${copFmt(by.amountCop)}</td><td data-label="Acciones" class="actions">${act}</td></tr>`;
@@ -141,6 +155,34 @@
     try { await api('/api/admin/roulette/image', { method: 'DELETE' }); showImg(null); flash(msg, 'Imagen eliminada.', 'success'); }
     catch (err) { flash(msg, err.message, 'error'); }
   });
+
+  /* Historial de ganadores (con nombres, solo para el admin) */
+  async function loadHistory() {
+    try {
+      if (revealing()) return;
+      const { winners } = await api('/api/admin/roulette/winners');
+      $('#rlHistory').classList.toggle('hidden', !winners.length);
+      $('#rlHistRows').innerHTML = winners.map(w => `<tr>
+        <td data-label="Fecha">${esc(w.dateBogota)}<br><span class="small">${esc(w.eventName)}</span></td>
+        <td data-label="Premio">${esc(w.prizeName)}</td>
+        <td data-label="Puesto" class="number">#${esc(w.seat)}</td>
+        <td data-label="Ganador"><b>${esc(w.fullName)}</b><br><span class="small">${esc(w.socialUser || '')} ${esc(w.phone || '')}</span></td>
+        <td data-label="Entrega" class="actions">${w.delivered ? '<span class="pill ok">Entregado</span> <button type="button" class="secondary small-btn" data-deliv="' + esc(w.id) + '" data-done="0">Deshacer</button>'
+          : '<span class="pill warn">Pendiente</span> <button type="button" class="ok-btn small-btn" data-deliv="' + esc(w.id) + '" data-done="1">Marcar entregado</button>'}</td></tr>`).join('');
+    } catch { /* se muestra la próxima vez */ }
+  }
+  $('#rlHistRows').addEventListener('click', async e => {
+    const b = e.target.closest('[data-deliv]'); if (!b) return;
+    try { await api(`/api/admin/roulette/winners/${encodeURIComponent(b.dataset.deliv)}/delivered`, { method: 'PATCH', headers: JSON_H, body: JSON.stringify({ done: b.dataset.done === '1' }) }); toast('Entrega actualizada.', 'ok'); }
+    catch (err) { toast(err.message, 'bad'); }
+    loadHistory();
+  });
+  const baseLoad = load;
+  load = async function () { await baseLoad(); if (!revealing()) await loadHistory(); };
+
+  // El panel del evento de la Quinta no se muestra dentro de la pestaña de la Ruleta, para no confundir.
+  const evPanel = $('#eventPanel');
+  document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => evPanel.classList.toggle('hidden', t.dataset.tab === 'ruleta')));
 
   // Carga al abrir la pestaña y refresca solo mientras está visible.
   $('#tab-ruleta').addEventListener('click', load);

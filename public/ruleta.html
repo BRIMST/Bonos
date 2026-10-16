@@ -5,15 +5,21 @@
   <title>Ruleta de Seguidores | Juntos Sumamos</title>
   <meta name="description" content="Mira en vivo la Ruleta de Seguidores de Juntos Sumamos.">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%231a1446'/%3E%3Ctext x='16' y='23' font-size='20' font-weight='900' text-anchor='middle' fill='%23ffc82e' font-family='Arial'%3EB%3C/text%3E%3C/svg%3E">
-  <link rel="stylesheet" href="/styles.css"><script defer src="/ruleta.js"></script>
+  <link rel="stylesheet" href="/styles.css"><script defer src="/ruleta.js"></script><script defer src="/modes.js"></script>
 </head>
 <body class="live">
 <header class="top"><div class="wrap">
   <span class="brand">Juntos <b>Sumamos</b> · Ruleta</span>
   <span class="top-actions"><a href="/">Inicio</a></span>
 </div></header>
+<div class="wrap"><nav class="modes" id="modes" aria-label="Elige el evento">
+    <a href="/" data-mode="quinta"><b>Bono de la Quinta</b><span class="mode-state">Cargando…</span></a>
+    <a href="/ruleta.html" data-mode="ruleta"><b>Ruleta de Seguidores</b><span class="mode-state">Cargando…</span></a>
+  </nav></div>
 
 <main class="wrap live-main">
+  <div class="demo-bar hidden" id="demoBar"><b>MODO ENSAYO</b><span>Nada se guarda ni se publica. Sirve para practicar antes del live.</span>
+    <button type="button" class="primary" id="demoSpin">Probar giro</button><button type="button" class="secondary" id="demoReset">Salir del ensayo</button></div>
   <section class="live-empty hidden" id="liveEmpty">
     <h1>Aún no hay una ruleta activa</h1>
     <p>Cuando el organizador la abra, aparecerá aquí con el premio y los puestos.</p>
@@ -50,6 +56,12 @@
       </aside>
     </div>
 
+    <section class="seat-board hist-live hidden" id="liveHistory" aria-label="Ganadores anteriores">
+      <h2>Ganadores anteriores</h2>
+      <ul class="hist-list" id="liveHistoryList"></ul>
+      <p class="small">Solo se publica el número del puesto, nunca el nombre de la persona.</p>
+    </section>
+
     <section class="seat-board" aria-label="Puestos">
       <h2>Puestos</h2>
       <div class="seat-grid" id="seatGrid"></div>
@@ -59,7 +71,7 @@
 
   <div class="live-winner hidden" id="liveWinner" role="status">
     <div class="live-winner-card">
-      <p>¡Tenemos ganador!</p>
+      <p id="winnerHead">¡Tenemos ganador!</p>
       <div class="live-winner-num" id="winnerSeatNum"></div>
       <p class="small">Puesto ganador</p>
       <button type="button" class="secondary" id="winnerClose">Cerrar</button>

@@ -542,3 +542,30 @@ body.live footer { color: #cfc8ff; }
 @media (max-width: 520px) { .rl-nums { grid-template-columns: 1fr 1fr; } .rl-actions button { flex: 1 1 100%; } }
 .check span { flex: 1; min-width: 0; }
 .rl-actions button { font-size: 16px; font-family: inherit; }
+
+/* ---------- Selector de evento (Quinta / Ruleta) ---------- */
+.modes { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 14px 0 4px; }
+.modes a { display: grid; gap: 2px; padding: 12px 14px; border-radius: 16px; text-decoration: none; background: #fff; color: var(--ink);
+  border: 2px solid #dcd8f5; text-align: center; transition: transform .15s, border-color .15s; }
+.modes a:hover { transform: translateY(-1px); border-color: var(--violet); }
+.modes a[aria-current="page"] { background: var(--ink); color: #fff; border-color: var(--ink); box-shadow: 0 6px 18px #1a144633; }
+.modes b { font-size: clamp(14px, 3.8vw, 17px); line-height: 1.15; }
+.mode-state { font-size: 12px; font-weight: 800; letter-spacing: .02em; color: #6b6890; }
+.mode-state.en_curso { color: #0b7a54; } .mode-state.finalizado { color: #6b6890; } .mode-state.cancelado { color: #b3262b; }
+.modes a[aria-current="page"] .mode-state { color: #cfc8ff; }
+.modes a[aria-current="page"] .mode-state.en_curso { color: #5ee6b0; }
+.mode-state.en_curso::before { content: "● "; }
+body.live .modes a:not([aria-current]) { background: rgba(255, 255, 255, .1); color: #fff; border-color: rgba(255, 255, 255, .2); }
+body.live .modes a[aria-current="page"] { background: #ffc82e; color: #1a1446; border-color: #ffc82e; }
+body.live .modes a[aria-current="page"] .mode-state { color: #1a1446; }
+body.live .mode-state { color: #cfc8ff; }
+.event-kicker { margin: 0; font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; color: #d9d3ff; }
+.hist-list { list-style: none; margin: 0 0 8px; padding: 0; display: grid; gap: 8px; }
+.hist-list li { display: flex; align-items: center; gap: 12px; background: rgba(255, 255, 255, .08); border-radius: 12px; padding: 10px 12px; }
+.hist-seat { flex: none; min-width: 58px; text-align: center; background: #ffc82e; color: #1a1446; border-radius: 10px; padding: 6px 8px; font-weight: 900; font-size: 18px; }
+.hist-info { display: grid; min-width: 0; flex: 1; } .hist-info small { color: #cfc8ff; }
+.hist-ok { flex: none; font-size: 12px; font-weight: 800; color: #5ee6b0; }
+
+.demo-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; background: #ff8a3d; color: #1a1446; border-radius: 14px; padding: 10px 14px; margin-bottom: 14px; }
+.demo-bar span { flex: 1 1 200px; font-size: 14px; }
+.demo-bar button { min-height: 40px; }

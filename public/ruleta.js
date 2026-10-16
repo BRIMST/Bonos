@@ -5,8 +5,10 @@
   const COLORS = ['#4b2fd0', '#ff5a5f', '#ffc82e', '#16b47c', '#7a5cff', '#ff8a3d'];
   const TAU = Math.PI * 2;
   const canvas = $('#wheel'), ctx = canvas.getContext('2d');
-  const STATUS = { abierta: 'Inscripciones abiertas', cerrada: 'Inscripciones cerradas · pronto gira', sorteada: 'Ruleta sorteada', cancelada: 'Evento cancelado' };
+  const STATUS = { abierta: 'En curso · inscripciones abiertas', cerrada: 'En curso · inscripciones cerradas', sorteada: 'Finalizado', cancelada: 'Cancelado' };
 
+  const demoMode = new URLSearchParams(location.search).has('demo');
+  const demo = { active: false };
   let data = null, seats = [], theta = 0, raf = 0, offset = 0;
   let seenVersion = null, animatingVersion = null, winnerSlice = -1, imgVersion = null;
 
@@ -95,6 +97,7 @@
   const confetti = $('#liveConfetti'), cx = confetti.getContext('2d');
   function showWinner() {
     $('#winnerSeatNum').textContent = '#' + data.winnerSeat;
+    $('#winnerHead').textContent = demo.active ? 'ENSAYO: así se verá el ganador' : '¡Tenemos ganador!';
     $('#liveWinner').classList.remove('hidden');
     if (!reduceMotion) burst();
   }
@@ -123,6 +126,7 @@
     g.replaceChildren(frag);
   }
   function render() {
+    if (demo.active) return;
     const d = data;
     $('#liveEmpty').classList.toggle('hidden', d.exists);
     $('#liveApp').classList.toggle('hidden', !d.exists);
@@ -149,18 +153,48 @@
     }
     if (animatingVersion) return;
     seenVersion = null; winnerSlice = -1; theta = 0; cancelAnimationFrame(raf);
-    setHub(d.status === 'cancelada' ? 'Cancelado' : 'Puestos', d.status === 'cancelada' ? '—' : seats.length, d.status === 'cancelada' ? 'off' : '');
+    setHub(d.status === 'cancelada' ? 'Evento' : 'Puestos', d.status === 'cancelada' ? '✕' : seats.length, d.status === 'cancelada' ? 'off' : '');
     $('#liveWinner').classList.add('hidden');
     draw(); renderGrid();
   }
 
-  async function poll() {
+  async function fetchOnce() {
+    if (demo.active) return;
     try {
       const res = await fetch('/api/roulette', { cache: 'no-store' });
-      if (res.ok) { data = await res.json(); offset = Date.parse(data.serverNowIso) - Date.now(); render(); }
+      if (res.ok && !demo.active) { data = await res.json(); offset = Date.parse(data.serverNowIso) - Date.now(); render(); }
     } catch { /* se reintenta */ }
-    setTimeout(poll, document.hidden ? 8000 : 3000);
   }
+  async function poll() { await fetchOnce(); setTimeout(poll, document.hidden ? 8000 : 3000); }
+
+  /* ---------- Ensayo (?demo=1): giro local, sin tocar el servidor ---------- */
+  if (demoMode) {
+    $('#demoBar').classList.remove('hidden');
+    $('#demoSpin').addEventListener('click', () => {
+      if (!data || !data.exists) return;
+      const pool = seats.length >= 2 ? [...seats] : Array.from({ length: 12 }, (_, i) => i + 1);
+      const winner = pool[crypto.getRandomValues(new Uint32Array(1))[0] % pool.length];
+      cancelAnimationFrame(raf); demo.active = true; winnerSlice = -1; seats = pool;
+      data = { ...data, status: 'sorteada', seatsTotal: Math.max(data.seatsTotal, pool.length), winnerSeat: winner,
+        spinVersion: Date.now(), spinStartsAtIso: new Date(Date.now() + 1500).toISOString(), spinMs: 10000 };
+      offset = 0; animatingVersion = data.spinVersion; $('#liveWinner').classList.add('hidden');
+      renderGrid(); runSpin();
+    });
+    $('#demoReset').addEventListener('click', () => { demo.active = false; animatingVersion = null; seenVersion = null; winnerSlice = -1; $('#liveWinner').classList.add('hidden'); fetchOnce(); });
+  }
+  const fmtDay = iso => { const [y, m, d] = iso.split('-').map(Number); return new Intl.DateTimeFormat('es-CO', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }).format(new Date(Date.UTC(y, m - 1, d))); };
+  async function loadHistory() {
+    try {
+      const res = await fetch('/api/roulette/winners'); if (!res.ok) return;
+      const { winners } = await res.json();
+      const box = $('#liveHistory'); box.classList.toggle('hidden', !winners.length);
+      const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+      $('#liveHistoryList').innerHTML = winners.map(w => `<li><span class="hist-seat">#${esc(w.seat)}</span>
+        <span class="hist-info"><b>${esc(w.prizeName)}</b><small>${esc(fmtDay(w.date))}${w.time ? ' · ' + esc(w.time) : ''} · ${esc(w.eventName)}</small></span>
+        ${w.delivered ? '<span class="hist-ok">Premio entregado</span>' : ''}</li>`).join('');
+    } catch { /* se reintenta */ }
+  }
+  loadHistory(); setInterval(loadHistory, 60000);
   window.addEventListener('resize', () => { if (data && data.exists && !animatingVersion) draw(); });
   poll();
 })();
