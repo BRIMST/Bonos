@@ -790,6 +790,69 @@ app.get('/api/roulette', rouletteLimiter, async (_req, res, next) => {
     res.json(publicRoulette(await getRoulette()));
   } catch (err) { next(err); }
 });
+// Estado de cada evento, para que la gente distinga la Quinta de la Ruleta.
+app.get('/api/modes', async (_req, res, next) => {
+  try {
+    const ev = eventState(await getSettings());
+    const r = await getRoulette();
+    const rs = !r ? 'sin_evento' : r.status === 'sorteada' ? 'finalizado' : r.status === 'cancelada' ? 'cancelado' : 'en_curso';
+    res.setHeader('Cache-Control', 'public, max-age=0, s-maxage=5, stale-while-revalidate=5');
+    res.json({ quinta: ev.active ? 'en_curso' : ev.exists ? 'finalizado' : 'sin_evento', ruleta: rs });
+  } catch (err) { next(err); }
+});
+async function allRouletteWinners() {
+  const snap = await db.collection('rouletteWinners').limit(300).get();
+  return snap.docs.map(d => d.data()).sort((a, b) => String(b.winnerAtIso).localeCompare(String(a.winnerAtIso)));
+}
+app.get('/api/roulette/winners', async (_req, res, next) => {
+  try {
+    const cur = await getRoulette();
+    // El ganador de la ruleta en curso se muestra en la pantalla principal; aquí solo los anteriores.
+    const list = (await allRouletteWinners()).filter(w => !(cur && cur.status === 'sorteada' && w.id === cur.id)).slice(0, 15)
+      .map(w => ({ date: w.dateBogota, time: timeInBogota(new Date(w.winnerAtIso)).slice(0, 5), eventName: w.eventName, prizeName: w.prizeName, seat: w.seat, delivered: Boolean(w.delivered) }));
+    res.setHeader('Cache-Control', 'public, max-age=0, s-maxage=30, stale-while-revalidate=30');
+    res.json({ winners: list });
+  } catch (err) { next(err); }
+});
+app.get('/api/admin/roulette/winners', requireAdmin, async (_req, res, next) => {
+  try { res.json({ winners: (await allRouletteWinners()).slice(0, 100) }); } catch (err) { next(err); }
+});
+app.patch('/api/admin/roulette/winners/:id/delivered', requireAdmin, async (req, res, next) => {
+  try {
+    if (!/^rl-\d+$/.test(req.params.id)) return res.status(404).json({ error: 'Ganador no encontrado.' });
+    const ref = db.collection('rouletteWinners').doc(req.params.id);
+    if (!(await ref.get()).exists) return res.status(404).json({ error: 'Ganador no encontrado.' });
+    await ref.set({ delivered: req.body.done === true, deliveredAtIso: req.body.done === true ? new Date().toISOString() : null }, { merge: true });
+    res.json({ winners: (await allRouletteWinners()).slice(0, 100) });
+  } catch (err) { next(err); }
+});
+// Acta descargable: quién participó, cuánto se recaudó y quién ganó, con fecha y hora del sorteo.
+app.get('/api/admin/roulette/acta.csv', requireAdmin, async (req, res, next) => {
+  try {
+    const cur = await getRoulette();
+    const wanted = typeof req.query.id === 'string' && /^rl-\d+$/.test(req.query.id) ? req.query.id : (cur && cur.id);
+    let r = cur && cur.id === wanted ? cur : null;
+    if (!r && wanted) { const h = await db.collection('rouletteHistory').doc(wanted).get(); r = h.exists ? h.data() : null; }
+    if (!r) return res.status(404).json({ error: 'No hay ruleta para generar el acta.' });
+    const seats = await rouletteSeats(r.id);
+    const when = iso => iso ? `${dateInBogota(new Date(iso))} ${timeInBogota(new Date(iso))} (hora de Colombia)` : '';
+    const win = r.status === 'sorteada' ? seats.find(s => s.seat === r.winnerSeat) : null;
+    const rows = [
+      ['Acta de la Ruleta de Seguidores'], ['Evento', r.name], ['Estado', r.status],
+      ['Premio', r.prizeName], ['Valor del premio (COP)', r.prizeValueCop], ['Precio por puesto (COP)', r.priceCop],
+      ['Puestos ocupados', `${seats.length} de ${r.seats}`], ['Recaudado (COP)', seats.length * r.priceCop],
+      ['Fecha y hora del sorteo', when(r.winnerAtIso)], ['Puesto ganador', win ? win.seat : ''],
+      ['Ganador', win ? `${win.fullName} ${win.socialUser || ''} ${win.phone || ''}`.trim() : ''],
+      ['Cancelada', r.status === 'cancelada' ? `${when(r.cancelledAtIso)} ${r.cancelReason || ''}`.trim() : ''],
+      [], ['Puesto', 'Nombre', 'Usuario', 'Celular', 'Aporte (COP)', 'Agregado', 'Devolución']
+    ];
+    seats.forEach(s => rows.push([s.seat, s.fullName, s.socialUser, s.phone, s.amountCop, when(s.addedAtIso), s.refundStatus === 'devuelto' ? 'Devuelto' : s.refundStatus === 'por_devolver' ? 'Por devolver' : '']));
+    const csv = rows.map(row => row.map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',')).join('\r\n');
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="acta-${r.id}.csv"`);
+    res.send('\uFEFF' + csv);
+  } catch (err) { next(err); }
+});
 app.get('/api/roulette-image', async (_req, res, next) => {
   try {
     const snap = await db.collection('rouletteImage').doc('current').get();
@@ -925,6 +988,13 @@ app.post('/api/admin/roulette/spin', requireAdmin, async (_req, res, next) => {
     const now = Date.now();
     const patch = { status: 'sorteada', winnerSeat, spinVersion: now, spinStartsAtIso: new Date(now + SPIN_LEAD_MS).toISOString(), winnerAtIso: new Date(now).toISOString() };
     await rouletteRef().set(patch, { merge: true });
+    const w = (await rouletteSeats(r.id)).find(x => x.seat === winnerSeat) || {};
+    // Historial: los datos personales solo los ve el administrador; la página pública recibe puesto, premio y fecha.
+    await db.collection('rouletteWinners').doc(r.id).set({
+      id: r.id, eventName: r.name, prizeName: r.prizeName, seat: winnerSeat, seatsSold: r.occupied.length,
+      winnerAtIso: patch.winnerAtIso, dateBogota: dateInBogota(new Date(now)),
+      fullName: w.fullName || '', socialUser: w.socialUser || '', phone: w.phone || '', delivered: false
+    });
     res.json(await adminRouletteView({ ...r, ...patch }));
   } catch (err) { next(err); }
 });
