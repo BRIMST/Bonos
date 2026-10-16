@@ -246,7 +246,7 @@ function publicRecord(d) {
     socialUser: d.socialUser, phone: d.phone, number: d.number,
     amountCop: d.amountCop, paymentStatus: d.paymentStatus,
     participationStatus: d.participationStatus || 'pendiente_verificacion',
-    duplicateReceipt: Boolean(d.duplicateReceipt)
+    duplicateReceipt: Boolean(d.duplicateReceipt), receiptPurged: Boolean(d.receiptPurgedAt)
   };
 }
 
@@ -299,7 +299,7 @@ app.post('/api/register', registerLimiter, upload.single('receipt'), async (req,
     }
     const id = crypto.randomUUID();
     const receiptHash = crypto.createHash('sha256').update(req.file.buffer).digest('hex');
-    const sameReceipt = await db.collection('registrations').where('receiptHash', '==', receiptHash).limit(1).get();
+    const seenBefore = await receiptSeenBefore(receiptHash);
 
     const record = {
       id,
@@ -317,7 +317,7 @@ app.post('/api/register', registerLimiter, upload.single('receipt'), async (req,
       amountCop: PRICE_COP,
       hasReceipt: true,
       receiptHash,
-      duplicateReceipt: !sameReceipt.empty,
+      duplicateReceipt: seenBefore,
       receiptMimeType: req.file.mimetype,
       paymentStatus: 'pendiente_revision',
       participationStatus: 'pendiente_verificacion',
@@ -327,7 +327,7 @@ app.post('/api/register', registerLimiter, upload.single('receipt'), async (req,
     // Primero el comprobante y luego el registro: nunca queda un registro sin comprobante.
     await db.collection('receipts').doc(id).set({
       id, mimeType: req.file.mimetype, size: req.file.buffer.length,
-      data: req.file.buffer, createdDateBogota: status.date, eventId: ev.id
+      data: req.file.buffer, createdDateBogota: status.date, eventId: ev.id, kind: 'quinta'
     });
     await db.collection('registrations').doc(id).set(record);
     res.status(201).json({
@@ -596,7 +596,7 @@ app.get('/api/admin/receipt/:id', requireAdmin, async (req, res, next) => {
   try {
     if (!/^[0-9a-f-]{36}$/.test(req.params.id)) return res.status(404).json({ error: 'Comprobante no encontrado.' });
     const snap = await db.collection('receipts').doc(req.params.id).get();
-    if (!snap.exists) return res.status(404).json({ error: 'Comprobante no encontrado.' });
+    if (!snap.exists) return res.status(404).json({ error: 'El comprobante ya no está disponible (se elimina pasado un tiempo para proteger los datos).' });
     const data = snap.data();
     res.setHeader('Content-Type', data.mimeType);
     res.setHeader('Content-Disposition', 'inline');
@@ -719,7 +719,40 @@ const ROULETTE_MARGIN_COP = 2000;   // margen para la barra naranja ("justo")
 const SPIN_LEAD_MS = 7000;          // tiempo entre pulsar "Girar" y que arranque la animación (todos alcanzan a verla)
 const SPIN_MS = 10000;              // duración de la animación
 const rouletteRef = () => db.collection('roulette').doc('current');
-async function getRoulette() { const s = await rouletteRef().get(); return s.exists ? s.data() : null; }
+// Cierre automático: si pasó la hora de cierre, la ruleta se comporta como "cerrada" sin tener que guardar nada.
+function applyAutoClose(r) {
+  if (r && r.status === 'abierta' && r.closesAtIso && Date.now() >= Date.parse(r.closesAtIso)) return { ...r, status: 'cerrada', autoClosed: true };
+  return r;
+}
+async function getRoulette() { const s = await rouletteRef().get(); return s.exists ? applyAutoClose(s.data()) : null; }
+const fail = (http, msg) => Object.assign(new Error(msg), { http, msg });
+// Lectura + escritura atómica de la ruleta (evita que dos personas tomen el mismo puesto a la vez).
+async function rouletteTx(fn) {
+  if (typeof db.runTransaction === 'function') {
+    return db.runTransaction(async tx => {
+      const snap = await tx.get(rouletteRef());
+      const io = { get: ref => tx.get(ref), set: (ref, d, o) => { tx.set(ref, d, o || {}); } };
+      return fn(snap.exists ? applyAutoClose(snap.data()) : null, io);
+    });
+  }
+  const pending = [];
+  const io = { get: ref => ref.get(), set: (ref, d, o) => { pending.push(ref.set(d, o || {})); } };
+  const out = await fn(await getRoulette(), io);
+  await Promise.all(pending);
+  return out;
+}
+async function reservationsOf(rouletteId) {
+  const snap = await db.collection('rouletteReservations').where('rouletteId', '==', rouletteId).limit(3000).get();
+  return snap.docs.map(d => d.data()).sort((a, b) => String(a.createdAtIso).localeCompare(String(b.createdAtIso)));
+}
+async function pendingReservations(rouletteId) { return (await reservationsOf(rouletteId)).filter(x => x.status === 'pendiente'); }
+// ¿Ya se usó antes este comprobante (en la Quinta o en la Ruleta)? Solo se compara la huella, no la imagen.
+async function receiptSeenBefore(hash) {
+  const a = await db.collection('registrations').where('receiptHash', '==', hash).limit(1).get();
+  if (!a.empty) return true;
+  const b = await db.collection('rouletteReservations').where('receiptHash', '==', hash).limit(1).get();
+  return !b.empty;
+}
 async function rouletteSeats(rouletteId) {
   const snap = await db.collection('rouletteSeats').where('rouletteId', '==', rouletteId).limit(5000).get();
   return snap.docs.map(d => d.data()).sort((a, b) => a.seat - b.seat);
@@ -735,14 +768,14 @@ function publicRoulette(r) {
   if (!r) return { exists: false, serverNowIso: new Date().toISOString() };
   return {
     exists: true, id: r.id, name: r.name, status: r.status,
-    seatsTotal: r.seats, occupied: r.occupied || [], priceCop: r.priceCop,
+    seatsTotal: r.seats, occupied: r.occupied || [], held: r.held || [], closesAtIso: r.closesAtIso || null, priceCop: r.priceCop,
     prize: { name: r.prizeName, description: r.prizeDescription || '', imageVersion: r.prizeImageVersion || null },
     winnerSeat: r.status === 'sorteada' ? r.winnerSeat : null,
     spinVersion: r.spinVersion || 0, spinStartsAtIso: r.spinStartsAtIso || null, spinMs: SPIN_MS,
     serverNowIso: new Date().toISOString()
   };
 }
-function parseRouletteConfig(body) {
+function parseRouletteConfig(body, existingClosesAtIso) {
   const name = cleanString(body.name, 80) || 'Ruleta de Seguidores';
   const seats = Math.round(Number(body.seats));
   const priceCop = Math.round(Number(body.priceCop));
@@ -754,7 +787,17 @@ function parseRouletteConfig(body) {
   if (!(priceCop >= 1000 && priceCop <= 10000000)) return { error: 'El precio por puesto debe ser de al menos $1.000.' };
   if (prizeName.length < 2) return { error: 'Escribe el nombre del premio.' };
   if (!(prizeValueCop >= 1000 && prizeValueCop <= 1000000000)) return { error: 'Escribe el valor del premio (mínimo $1.000). Se usa para la barra de recaudo.' };
-  return { value: { name, seats, priceCop, prizeName, prizeDescription, prizeValueCop, requireMin } };
+  // Hora de cierre opcional, escrita en hora de Colombia: "2026-10-20T19:00".
+  let closesAtIso = null;
+  const rawClose = typeof body.closesAt === 'string' ? body.closesAt.trim() : '';
+  if (rawClose) {
+    if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(rawClose)) return { error: 'La hora de cierre no es válida.' };
+    const t = Date.parse(rawClose + ':00-05:00');
+    if (Number.isNaN(t)) return { error: 'La hora de cierre no es válida.' };
+    closesAtIso = new Date(t).toISOString();
+    if (closesAtIso !== existingClosesAtIso && t < Date.now() + 60000) return { error: 'La hora de cierre debe ser futura.' };
+  }
+  return { value: { name, seats, priceCop, prizeName, prizeDescription, prizeValueCop, requireMin, closesAtIso } };
 }
 function groupBuyers(seats) {
   const map = new Map();
@@ -771,12 +814,14 @@ async function adminRouletteView(r) {
   const seats = await rouletteSeats(r.id);
   const buyers = groupBuyers(seats);
   const winnerSeat = r.status === 'sorteada' ? seats.find(s => s.seat === r.winnerSeat) : null;
+  const pendingRes = (await pendingReservations(r.id)).map(x => ({ id: x.id, fullName: x.fullName, socialUser: x.socialUser, phone: x.phone,
+    seats: x.seats, amountCop: x.amountCop, createdAtIso: x.createdAtIso, duplicateReceipt: Boolean(x.duplicateReceipt), receiptPurged: Boolean(x.receiptPurgedAt) }));
   const pending = seats.filter(s => s.refundStatus === 'por_devolver');
   const done = seats.filter(s => s.refundStatus === 'devuelto');
   return {
     exists: true,
     roulette: { ...publicRoulette(r), requireMin: Boolean(r.requireMin), prizeValueCop: r.prizeValueCop, cancelReason: r.cancelReason || '' },
-    bar: rouletteBar(r), buyers,
+    bar: rouletteBar(r), buyers, reservations: pendingRes,
     winner: winnerSeat ? { seat: winnerSeat.seat, fullName: winnerSeat.fullName, socialUser: winnerSeat.socialUser, phone: winnerSeat.phone } : null,
     refunds: { pendingCop: pending.reduce((n, s) => n + (s.amountCop || 0), 0), doneCop: done.reduce((n, s) => n + (s.amountCop || 0), 0) }
   };
@@ -872,10 +917,10 @@ app.post('/api/admin/roulette', requireAdmin, async (req, res, next) => {
   try {
     const cur = await getRoulette();
     if (cur && openStatuses.includes(cur.status)) return res.status(409).json({ error: 'Ya hay una ruleta en curso. Sortéala o cancélala antes de crear otra.' });
-    const cfg = parseRouletteConfig(req.body);
+    const cfg = parseRouletteConfig(req.body, null);
     if (cfg.error) return res.status(400).json({ error: cfg.error });
     if (cur) await db.collection('rouletteHistory').doc(cur.id).set(cur);
-    const r = { id: `rl-${Date.now()}`, status: 'abierta', occupied: [], createdAtIso: new Date().toISOString(), ...cfg.value, prizeImageVersion: null, spinVersion: 0 };
+    const r = { id: `rl-${Date.now()}`, status: 'abierta', occupied: [], held: [], createdAtIso: new Date().toISOString(), ...cfg.value, prizeImageVersion: null, spinVersion: 0 };
     await rouletteRef().set(r);
     await db.collection('rouletteImage').doc('current').delete();
     res.status(201).json(await adminRouletteView(r));
@@ -886,10 +931,10 @@ app.put('/api/admin/roulette', requireAdmin, async (req, res, next) => {
   try {
     const r = await getRoulette();
     if (!r || !openStatuses.includes(r.status)) return res.status(409).json({ error: 'No hay una ruleta abierta para editar.' });
-    const cfg = parseRouletteConfig(req.body);
+    const cfg = parseRouletteConfig(req.body, r.closesAtIso || null);
     if (cfg.error) return res.status(400).json({ error: cfg.error });
-    const sold = r.occupied.length;
-    if (cfg.value.seats < sold) return res.status(409).json({ error: `Ya hay ${sold} puestos ocupados: no puedes dejar menos.` });
+    const sold = r.occupied.length + (r.held || []).length;
+    if (cfg.value.seats < sold) return res.status(409).json({ error: `Ya hay ${sold} puestos ocupados o apartados: no puedes dejar menos.` });
     if (sold > 0 && cfg.value.priceCop !== r.priceCop) return res.status(409).json({ error: 'No se puede cambiar el precio cuando ya hay puestos vendidos.' });
     await rouletteRef().set(cfg.value, { merge: true });
     res.json(await adminRouletteView({ ...r, ...cfg.value }));
@@ -923,8 +968,6 @@ app.delete('/api/admin/roulette/image', requireAdmin, async (_req, res, next) =>
 // Agrega a un seguidor (después de confirmar su pago). Cada puesto es un número; puede comprar varios.
 app.post('/api/admin/roulette/seats', requireAdmin, async (req, res, next) => {
   try {
-    const r = await getRoulette();
-    if (!r || r.status !== 'abierta') return res.status(409).json({ error: 'Las inscripciones no están abiertas.' });
     const fullName = cleanString(req.body.fullName, 120);
     const socialUser = cleanString(req.body.socialUser, 80);
     const phone = cleanString(req.body.phone, 10);
@@ -932,22 +975,24 @@ app.post('/api/admin/roulette/seats', requireAdmin, async (req, res, next) => {
     if (fullName.length < 3) return res.status(400).json({ error: 'Escribe el nombre completo del seguidor.' });
     if (phone && !validPhone(phone)) return res.status(400).json({ error: 'El celular debe tener 10 dígitos (o déjalo vacío).' });
     if (!(quantity >= 1 && quantity <= 100)) return res.status(400).json({ error: 'La cantidad de puestos debe estar entre 1 y 100.' });
-    const taken = new Set(r.occupied);
-    const free = [];
-    for (let n = 1; n <= r.seats && free.length < quantity; n++) if (!taken.has(n)) free.push(n);
-    if (free.length < quantity) return res.status(409).json({ error: `Solo quedan ${r.seats - taken.size} puestos libres.` });
-    const buyerId = crypto.randomUUID();
-    const addedAtIso = new Date().toISOString();
-    for (const seat of free) {
-      await db.collection('rouletteSeats').doc(`${r.id}-${seat}`).set({
-        id: `${r.id}-${seat}`, rouletteId: r.id, seat, buyerId, fullName, socialUser, phone,
-        amountCop: r.priceCop, addedAtIso, refundStatus: null
-      });
-    }
-    const occupied = [...r.occupied, ...free].sort((a, b) => a - b);
-    await rouletteRef().set({ occupied }, { merge: true });
-    res.status(201).json({ ok: true, seats: free, view: await adminRouletteView({ ...r, occupied }) });
-  } catch (err) { next(err); }
+    const free = await rouletteTx(async (r, io) => {
+      if (!r || r.status !== 'abierta') throw fail(409, 'Las inscripciones no están abiertas.');
+      const taken = new Set([...r.occupied, ...(r.held || [])]);
+      const seats = [];
+      for (let n = 1; n <= r.seats && seats.length < quantity; n++) if (!taken.has(n)) seats.push(n);
+      if (seats.length < quantity) throw fail(409, `Solo quedan ${r.seats - taken.size} puestos libres.`);
+      const buyerId = crypto.randomUUID(), addedAtIso = new Date().toISOString();
+      for (const seat of seats) {
+        io.set(db.collection('rouletteSeats').doc(`${r.id}-${seat}`), {
+          id: `${r.id}-${seat}`, rouletteId: r.id, seat, buyerId, fullName, socialUser, phone,
+          amountCop: r.priceCop, addedAtIso, refundStatus: null
+        });
+      }
+      io.set(rouletteRef(), { occupied: [...r.occupied, ...seats].sort((x, y) => x - y) }, { merge: true });
+      return seats;
+    });
+    res.status(201).json({ ok: true, seats: free, view: await adminRouletteView(await getRoulette()) });
+  } catch (err) { if (err.http) return res.status(err.http).json({ error: err.msg }); next(err); }
 });
 
 app.delete('/api/admin/roulette/seats/:seat', requireAdmin, async (req, res, next) => {
@@ -963,23 +1008,25 @@ app.delete('/api/admin/roulette/seats/:seat', requireAdmin, async (req, res, nex
   } catch (err) { next(err); }
 });
 
-async function setRouletteStatus(res, from, to, errMsg) {
+async function setRouletteStatus(res, from, to, errMsg, extra = {}) {
   const r = await getRoulette();
   if (!r || r.status !== from) return res.status(409).json({ error: errMsg });
-  await rouletteRef().set({ status: to }, { merge: true });
-  return res.json(await adminRouletteView({ ...r, status: to }));
+  await rouletteRef().set({ status: to, ...extra }, { merge: true });
+  return res.json(await adminRouletteView({ ...r, status: to, ...extra }));
 }
 app.post('/api/admin/roulette/close', requireAdmin, async (_req, res, next) => {
   try { await setRouletteStatus(res, 'abierta', 'cerrada', 'Las inscripciones ya están cerradas o no hay ruleta.'); } catch (err) { next(err); }
 });
 app.post('/api/admin/roulette/reopen', requireAdmin, async (_req, res, next) => {
-  try { await setRouletteStatus(res, 'cerrada', 'abierta', 'Solo se pueden reabrir inscripciones cerradas.'); } catch (err) { next(err); }
+  try { await setRouletteStatus(res, 'cerrada', 'abierta', 'Solo se pueden reabrir inscripciones cerradas.', { closesAtIso: null }); } catch (err) { next(err); }
 });
 
 app.post('/api/admin/roulette/spin', requireAdmin, async (_req, res, next) => {
   try {
     const r = await getRoulette();
     if (!r || r.status !== 'cerrada') return res.status(409).json({ error: 'Cierra las inscripciones antes de girar la ruleta.' });
+    const pendSpin = (await pendingReservations(r.id)).length;
+    if (pendSpin) return res.status(409).json({ error: `Hay ${pendSpin} reserva(s) con comprobante por revisar. Apruébalas o recházalas antes de girar.` });
     if (r.occupied.length < 2) return res.status(409).json({ error: 'Se necesitan al menos 2 puestos ocupados.' });
     if (r.requireMin && rouletteBar(r).state === 'rojo') {
       return res.status(409).json({ error: 'Lo recaudado no llega al valor del premio. Cancela el evento y devuelve el dinero, o desactiva la opción "solo se juega si se alcanza el mínimo".' });
@@ -1004,6 +1051,8 @@ app.post('/api/admin/roulette/cancel', requireAdmin, async (req, res, next) => {
   try {
     const r = await getRoulette();
     if (!r || !openStatuses.includes(r.status)) return res.status(409).json({ error: 'Solo se puede cancelar una ruleta que aún no se ha sorteado.' });
+    const pendCancel = (await pendingReservations(r.id)).length;
+    if (pendCancel) return res.status(409).json({ error: `Hay ${pendCancel} reserva(s) con pago por revisar. Apruébalas (para devolverles su dinero) o recházalas antes de cancelar.` });
     const seats = await rouletteSeats(r.id);
     for (const s of seats) await db.collection('rouletteSeats').doc(s.id).set({ refundStatus: 'por_devolver' }, { merge: true });
     const patch = { status: 'cancelada', cancelReason: cleanString(req.body && req.body.reason, 200), cancelledAtIso: new Date().toISOString() };
@@ -1024,6 +1073,230 @@ app.patch('/api/admin/roulette/buyers/:buyerId/refund', requireAdmin, async (req
       await db.collection('rouletteSeats').doc(s.id).set({ refundStatus: done ? 'devuelto' : 'por_devolver', refundedAtIso: done ? new Date().toISOString() : null }, { merge: true });
     }
     res.json(await adminRouletteView(r));
+  } catch (err) { next(err); }
+});
+
+
+// ---- Reservas de puestos hechas por los propios seguidores ----
+// El seguidor elige sus puestos (o se le asignan), sube su comprobante y los puestos quedan "apartados"
+// hasta que el administrador verifica el pago.
+app.post('/api/roulette/reserve', registerLimiter, upload.single('receipt'), async (req, res, next) => {
+  try {
+    const fullName = cleanString(req.body.fullName, 120);
+    const socialUser = cleanString(req.body.socialUser, 80);
+    const phone = cleanString(req.body.phone, 10);
+    const acceptedTerms = req.body.acceptedTerms === 'on' || req.body.acceptedTerms === 'true';
+    const wanted = [...new Set(String(req.body.seats || '').split(',').map(x => Number(x.trim())).filter(n => Number.isInteger(n) && n >= 1))];
+    const quantity = wanted.length || Math.round(Number(req.body.quantity) || 1);
+    if (fullName.length < 3) return res.status(400).json({ error: 'Escribe tu nombre completo.' });
+    if (socialUser.length < 2) return res.status(400).json({ error: 'Escribe tu usuario de red social.' });
+    if (!validPhone(phone)) return res.status(400).json({ error: 'El celular debe tener exactamente 10 dígitos.' });
+    if (!(quantity >= 1 && quantity <= 20)) return res.status(400).json({ error: 'Puedes reservar entre 1 y 20 puestos a la vez.' });
+    if (!acceptedTerms) return res.status(400).json({ error: 'Debes aceptar los términos.' });
+    if (!req.file) return res.status(400).json({ error: 'Debes adjuntar el comprobante de pago.' });
+    if (!matchesSignature(req.file.buffer, req.file.mimetype)) return res.status(400).json({ error: 'El archivo no es un JPG, PNG o PDF válido.' });
+    if (req.file.buffer.length > MAX_RECEIPT_BYTES) return res.status(413).json({ error: 'El comprobante pesa demasiado (máximo 800 KB).' });
+    const pre = await getRoulette();
+    if (!pre || pre.status !== 'abierta') return res.status(409).json({ error: 'Las inscripciones de la ruleta no están abiertas.' });
+
+    const id = crypto.randomUUID();
+    const receiptHash = crypto.createHash('sha256').update(req.file.buffer).digest('hex');
+    const duplicateReceipt = await receiptSeenBefore(receiptHash);
+    await db.collection('receipts').doc(id).set({
+      id, mimeType: req.file.mimetype, size: req.file.buffer.length, data: req.file.buffer,
+      createdDateBogota: dateInBogota(), rouletteId: pre.id, kind: 'ruleta'
+    });
+    let doc;
+    try {
+      doc = await rouletteTx(async (r, io) => {
+        if (!r || r.status !== 'abierta') throw fail(409, 'Las inscripciones de la ruleta no están abiertas.');
+        const taken = new Set([...r.occupied, ...(r.held || [])]);
+        const seats = [];
+        for (const n of wanted) {
+          if (n > r.seats) throw fail(400, `El puesto ${n} no existe.`);
+          if (taken.has(n)) throw fail(409, `El puesto ${n} ya fue tomado. Elige otro.`);
+          seats.push(n);
+        }
+        for (let n = 1; n <= r.seats && seats.length < quantity; n++) if (!taken.has(n) && !seats.includes(n)) seats.push(n);
+        if (seats.length < quantity) throw fail(409, `Solo quedan ${r.seats - taken.size} puestos disponibles.`);
+        seats.sort((x, y) => x - y);
+        const d = {
+          id, rouletteId: r.id, fullName, socialUser, phone, seats, quantity: seats.length, amountCop: seats.length * r.priceCop,
+          receiptHash, duplicateReceipt, receiptMimeType: req.file.mimetype, status: 'pendiente',
+          createdAtIso: new Date().toISOString(), termsAccepted: true
+        };
+        io.set(db.collection('rouletteReservations').doc(id), d);
+        io.set(rouletteRef(), { held: [...(r.held || []), ...seats].sort((x, y) => x - y) }, { merge: true });
+        return d;
+      });
+    } catch (e) {
+      await db.collection('receipts').doc(id).delete().catch(() => {});
+      throw e;
+    }
+    res.status(201).json({ ok: true, id, seats: doc.seats, amountCop: doc.amountCop,
+      message: 'Reserva recibida. Tus puestos quedan apartados mientras verificamos tu pago.' });
+  } catch (err) { if (err.http) return res.status(err.http).json({ error: err.msg }); next(err); }
+});
+
+async function reviewReservation(req, res, next, approve) {
+  try {
+    if (!/^[0-9a-f-]{36}$/.test(req.params.id)) return res.status(404).json({ error: 'Reserva no encontrada.' });
+    await rouletteTx(async (r, io) => {
+      const ref = db.collection('rouletteReservations').doc(req.params.id);
+      const snap = await io.get(ref);
+      if (!snap.exists) throw fail(404, 'Reserva no encontrada.');
+      const rv = snap.data();
+      if (!r || r.id !== rv.rouletteId) throw fail(409, 'Esta reserva es de una ruleta anterior.');
+      if (!openStatuses.includes(r.status)) throw fail(409, 'Esa ruleta ya no está en inscripciones.');
+      if (rv.status !== 'pendiente') throw fail(409, 'Esta reserva ya fue revisada.');
+      const nowIso = new Date().toISOString();
+      const held = (r.held || []).filter(n => !rv.seats.includes(n));
+      if (approve) {
+        const buyerId = crypto.randomUUID();
+        for (const seat of rv.seats) {
+          io.set(db.collection('rouletteSeats').doc(`${r.id}-${seat}`), {
+            id: `${r.id}-${seat}`, rouletteId: r.id, seat, buyerId, reservationId: rv.id, fullName: rv.fullName, socialUser: rv.socialUser,
+            phone: rv.phone, amountCop: r.priceCop, addedAtIso: nowIso, refundStatus: null
+          });
+        }
+        io.set(ref, { status: 'aprobada', buyerId, reviewedAtIso: nowIso }, { merge: true });
+        io.set(rouletteRef(), { occupied: [...r.occupied, ...rv.seats].sort((x, y) => x - y), held }, { merge: true });
+      } else {
+        io.set(ref, { status: 'rechazada', reviewedAtIso: nowIso }, { merge: true });
+        io.set(rouletteRef(), { held }, { merge: true });
+      }
+    });
+    res.json(await adminRouletteView(await getRoulette()));
+  } catch (err) { if (err.http) return res.status(err.http).json({ error: err.msg }); next(err); }
+}
+app.post('/api/admin/roulette/reservations/:id/approve', requireAdmin, (req, res, next) => reviewReservation(req, res, next, true));
+app.post('/api/admin/roulette/reservations/:id/reject', requireAdmin, (req, res, next) => reviewReservation(req, res, next, false));
+
+// ---- "Consulta tu participación" (celular + tu número de 5 cifras o tu puesto) ----
+const lookupLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 30, standardHeaders: true, legacyHeaders: false,
+  message: { error: 'Demasiadas consultas. Inténtalo más tarde.' } });
+app.post('/api/lookup', lookupLimiter, async (req, res, next) => {
+  try {
+    const phone = cleanString(req.body.phone, 10), code = cleanString(req.body.code, 5);
+    if (!validPhone(phone) || !/^\d{1,5}$/.test(code)) {
+      return res.status(400).json({ error: 'Escribe tu celular (10 dígitos) y tu número de 5 cifras o tu número de puesto.' });
+    }
+    const results = [];
+    if (code.length === 5) {
+      const snap = await db.collection('registrations').where('phone', '==', phone).limit(100).get();
+      snap.docs.map(d => d.data()).filter(d => d.number === code).forEach(d => results.push({
+        type: 'quinta', number: d.number, status: d.participationStatus || 'pendiente_verificacion', date: d.createdDateBogota, quintaDate: d.assignedDate, at: d.createdAtIso }));
+    } else {
+      const n = Number(code), cur = await getRoulette();
+      const rs = await db.collection('rouletteReservations').where('phone', '==', phone).limit(100).get();
+      rs.docs.map(d => d.data()).filter(d => d.seats.includes(n)).forEach(d => results.push({
+        type: 'ruleta', seats: d.seats, status: d.status, current: Boolean(cur && cur.id === d.rouletteId), rouletteStatus: cur && cur.id === d.rouletteId ? cur.status : 'finalizada', at: d.createdAtIso }));
+      const ss = await db.collection('rouletteSeats').where('phone', '==', phone).limit(100).get();
+      ss.docs.map(d => d.data()).filter(d => d.seat === n && !d.reservationId).forEach(d => results.push({
+        type: 'ruleta', seats: [d.seat], status: 'aprobada', current: Boolean(cur && cur.id === d.rouletteId), rouletteStatus: cur && cur.id === d.rouletteId ? cur.status : 'finalizada', refund: d.refundStatus || null, at: d.addedAtIso }));
+    }
+    results.sort((a, b) => String(b.at).localeCompare(String(a.at)));
+    res.json({ results: results.slice(0, 10) });
+  } catch (err) { next(err); }
+});
+
+// ---- Protección de datos: comprobantes, borrado y respaldo ----
+// Al borrar un comprobante se elimina solo la imagen; la huella (hash) queda en el registro y por eso
+// sigue detectándose si alguien intenta reutilizar el mismo archivo.
+app.post('/api/admin/purge-receipts', requireAdmin, async (req, res, next) => {
+  try {
+    const days = Math.round(Number(req.body.days));
+    if (!(days >= 7 && days <= 365)) return res.status(400).json({ error: 'Elige entre 7 y 365 días.' });
+    const cutoff = dateInBogota(new Date(Date.now() - days * 86400000));
+    const ev = eventState(await getSettings());
+    const rl = await getRoulette();
+    let deleted = 0;
+    const regs = (await db.collection('registrations').limit(5000).get()).docs.map(d => d.data());
+    for (const d of regs) {
+      if (d.createdDateBogota < cutoff && !d.receiptPurgedAt && !(ev.active && d.eventId === ev.id)) {
+        await db.collection('receipts').doc(d.id).delete();
+        await db.collection('registrations').doc(d.id).set({ receiptPurgedAt: new Date().toISOString() }, { merge: true });
+        deleted++;
+      }
+    }
+    const rvs = (await db.collection('rouletteReservations').limit(5000).get()).docs.map(d => d.data());
+    for (const d of rvs) {
+      const day = String(d.createdAtIso || '').slice(0, 10);
+      const live = rl && openStatuses.includes(rl.status) && d.rouletteId === rl.id;
+      if (day && day < cutoff && !d.receiptPurgedAt && !live) {
+        await db.collection('receipts').doc(d.id).delete();
+        await db.collection('rouletteReservations').doc(d.id).set({ receiptPurgedAt: new Date().toISOString() }, { merge: true });
+        deleted++;
+      }
+    }
+    res.json({ ok: true, deleted, cutoff });
+  } catch (err) { next(err); }
+});
+
+// Derecho de supresión (Ley 1581): anonimiza todo lo asociado a un celular y borra sus comprobantes.
+app.post('/api/admin/person/erase', requireAdmin, async (req, res, next) => {
+  try {
+    const phone = cleanString(req.body.phone, 10);
+    if (!validPhone(phone)) return res.status(400).json({ error: 'Escribe el celular de 10 dígitos.' });
+    const cleared = { fullName: '(eliminado)', socialUser: '', phone: '', erasedAt: new Date().toISOString() };
+    let records = 0, receipts = 0;
+    for (const name of ['registrations', 'rouletteReservations', 'rouletteSeats', 'rouletteWinners']) {
+      const snap = await db.collection(name).where('phone', '==', phone).limit(1000).get();
+      for (const d of snap.docs.map(x => x.data())) {
+        await db.collection(name).doc(d.id).set(cleared, { merge: true });
+        records++;
+        if (name === 'registrations' || name === 'rouletteReservations') {
+          await db.collection('receipts').doc(d.id).delete(); receipts++;
+          await db.collection(name).doc(d.id).set({ receiptPurgedAt: cleared.erasedAt }, { merge: true });
+        }
+      }
+    }
+    res.json({ ok: true, records, receipts });
+  } catch (err) { next(err); }
+});
+
+app.get('/api/admin/backup.json', requireAdmin, async (_req, res, next) => {
+  try {
+    const out = { generatedAtIso: new Date().toISOString(), note: 'Copia sin imágenes de comprobantes ni contraseñas.' };
+    for (const name of ['registrations', 'rouletteSeats', 'rouletteReservations', 'rouletteWinners', 'rouletteHistory', 'events', 'winners']) {
+      out[name] = (await db.collection(name).limit(5000).get()).docs.map(d => d.data());
+    }
+    const cur = await db.collection('roulette').doc('current').get();
+    out.rouletteCurrent = cur.exists ? cur.data() : null;
+    const { passwordSalt, passwordHash, ...safe } = await getSettings();
+    out.settings = safe;
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="respaldo-${dateInBogota()}.json"`);
+    res.send(JSON.stringify(out, null, 1));
+  } catch (err) { next(err); }
+});
+
+// ---- Reportes: recaudo por evento y por mes ----
+app.get('/api/admin/report', requireAdmin, async (_req, res, next) => {
+  try {
+    const regs = (await db.collection('registrations').limit(5000).get()).docs.map(d => d.data());
+    const evs = (await db.collection('events').limit(300).get()).docs.map(d => d.data());
+    const byEvent = new Map();
+    for (const r of regs) {
+      const k = r.eventId || 'sin-evento';
+      if (!byEvent.has(k)) byEvent.set(k, { registrations: 0, accepted: 0, acceptedCop: 0 });
+      const e = byEvent.get(k); e.registrations++;
+      if (r.participationStatus === 'aceptada') { e.accepted++; e.acceptedCop += r.amountCop || 0; }
+    }
+    const quinta = evs.sort((a, b) => String(b.startIso).localeCompare(String(a.startIso))).map(e => ({
+      id: e.id, startIso: e.startIso, quintaDate: e.quintaDate, ...(byEvent.get(e.id) || { registrations: 0, accepted: 0, acceptedCop: 0 }) }));
+    const cur = await db.collection('roulette').doc('current').get();
+    const hist = (await db.collection('rouletteHistory').limit(300).get()).docs.map(d => d.data());
+    const ruleta = [...(cur.exists ? [cur.data()] : []), ...hist].sort((a, b) => String(b.createdAtIso).localeCompare(String(a.createdAtIso))).map(r => {
+      const collectedCop = (r.occupied || []).length * r.priceCop;
+      const played = r.status === 'sorteada';
+      return { id: r.id, name: r.name, status: r.status, createdAtIso: r.createdAtIso, seatsSold: (r.occupied || []).length, seatsTotal: r.seats,
+        collectedCop, prizeValueCop: r.prizeValueCop, resultCop: played ? collectedCop - r.prizeValueCop : null };
+    });
+    const months = {};
+    for (const e of quinta) { const m = String(e.quintaDate || '').slice(0, 7); if (m) { months[m] = months[m] || { month: m, quintaCop: 0, ruletaCop: 0 }; months[m].quintaCop += e.acceptedCop; } }
+    for (const r of ruleta) { const m = String(r.createdAtIso || '').slice(0, 7); if (m && r.status === 'sorteada') { months[m] = months[m] || { month: m, quintaCop: 0, ruletaCop: 0 }; months[m].ruletaCop += r.resultCop; } }
+    res.json({ quinta, ruleta, months: Object.values(months).sort((a, b) => b.month.localeCompare(a.month)) });
   } catch (err) { next(err); }
 });
 

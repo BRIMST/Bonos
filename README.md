@@ -91,3 +91,14 @@ Requiere Node.js 20 o superior.
 ## Diseño (v1.4)
 
 Diseño responsive para teléfono, tableta y escritorio: boleto con los 5 dígitos en vivo, cuenta regresiva al cierre de las 7:00 p. m. y, tras enviar el registro, una tarjeta animada con confeti: «¡Muchas gracias por tu apoyo! Buena suerte en el sorteo». Respeta la preferencia de «reducir movimiento» del dispositivo. En el admin, la tabla pasa a tarjetas en el teléfono.
+
+## Novedades v1.5
+
+- **Reserva de puestos por los seguidores** (`/ruleta.html`): eligen puestos en el tablero, suben el comprobante y quedan "apartados" hasta que el admin aprueba o rechaza (pestaña *Ruleta → Reservas por revisar*).
+- **Consulta tu participación** (`/consulta.html`): celular + número de 5 cifras (Quinta) o puesto (ruleta).
+- **Términos de la ruleta** (`/terminos-ruleta.html`): borrador, debe revisarlo un abogado.
+- **Cierre automático** de inscripciones a la hora programada.
+- **Botones de WhatsApp** (enlaces `wa.me`, sin API) en registros, participantes y ganador.
+- **Privacidad**: *Pago y contraseña → Privacidad y respaldo*: borrar comprobantes antiguos (se conserva solo la huella SHA-256 para detectar repetidos), eliminar los datos de una persona (Ley 1581) y descargar respaldo `.json`.
+- **Reportes**: recaudo por mes, por evento de la Quinta y por ruleta.
+- **QR por vista**: botones para generar el QR de la Quinta o de la Ruleta.
