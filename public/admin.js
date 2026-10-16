@@ -60,6 +60,7 @@ function selectTab(name) {
   tabs.forEach(t => {
     const on = t.dataset.tab === name;
     t.classList.toggle('active', on); t.setAttribute('aria-selected', on); t.tabIndex = on ? 0 : -1;
+    if (on && t.scrollIntoView) t.scrollIntoView({ inline: 'center', block: 'nearest' });
     $(`#view-${t.dataset.tab}`).classList.toggle('hidden', !on);
   });
 }

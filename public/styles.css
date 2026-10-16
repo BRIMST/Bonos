@@ -622,3 +622,11 @@ button.seat { border: 0; font: inherit; cursor: default; }
 
 .reserve input[type=file] { color: var(--ink); }
 .reserve input[type=file]::file-selector-button { margin-right: 12px; }
+
+/* Pestañas del admin: en pantallas anchas se acomodan en varias filas; en teléfono se desliza y se ve un degradado en el borde */
+@media (min-width: 640px) {
+  .tabs { flex-wrap: wrap; overflow: visible; }
+}
+@media (max-width: 639px) {
+  .tabs { -webkit-mask-image: linear-gradient(90deg, #000 88%, transparent); mask-image: linear-gradient(90deg, #000 88%, transparent); padding-right: 28px; }
+}

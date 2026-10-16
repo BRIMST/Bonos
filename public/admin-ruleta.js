@@ -2,7 +2,8 @@
 (() => {
   const form = $('#rlForm'), seatForm = $('#rlSeatForm');
   const JSON_H = { 'Content-Type': 'application/json' };
-  let view = null, dirty = false;
+  let view = null, dirty = false, pendingFile = null, pendingUrl = '';
+  const isOpen = () => Boolean(view && view.exists && ['abierta', 'cerrada'].includes(view.roulette.status));
   const wa = (phone, text) => phone ? `<a class="wa-btn small-btn" target="_blank" rel="noopener" href="https://wa.me/57${esc(phone)}?text=${encodeURIComponent(text)}">WhatsApp</a>` : '';
   const localDT = iso => new Date(Date.parse(iso) - 5 * 3600e3).toISOString().slice(0, 16); // hora de Colombia (UTC-5)
   const STATUS = { abierta: ['Inscripciones abiertas', 'ok'], cerrada: ['Inscripciones cerradas', 'warn'], sorteada: ['Sorteada', 'ok'], cancelada: ['Cancelada', 'bad'] };
@@ -30,9 +31,9 @@
     if (has) $('#rlActa').href = `/api/admin/roulette/acta.csv?id=${encodeURIComponent(r.id)}`;
     $('#rlFormTitle').textContent = open ? 'Editar ruleta' : 'Crear ruleta';
     $('#rlSave').textContent = open ? 'Guardar cambios' : 'Crear nueva ruleta';
-    $('#rlImgBox').classList.toggle('hidden', !has);
     seatForm.classList.toggle('hidden', !(has && r.status === 'abierta'));
     $('#rlBuyers').classList.toggle('hidden', !has || !view.buyers.length);
+    if (!has || !open) showImg(pendingFile ? 'pending' : null);
     if (!has) return;
 
     if (!form.dataset.filled || (open && !dirty)) {
@@ -42,7 +43,7 @@
       form.closesAt.value = r.closesAtIso ? localDT(r.closesAtIso) : '';
       form.dataset.filled = '1';
     }
-    showImg(r.prize.imageVersion);
+    if (open) showImg(r.prize.imageVersion);
 
     const [label, kind] = hide ? ['Girando…', 'warn'] : (STATUS[r.status] || ['', '']);
     const chip = $('#rlChip'); chip.textContent = label; chip.className = `chip ${kind === 'ok' ? 'ok' : kind === 'bad' ? 'bad' : 'warn'}`;
@@ -173,7 +174,12 @@
     const open = view && view.exists && ['abierta', 'cerrada'].includes(view.roulette.status);
     const body = { name: form.name.value, seats: form.seats.value, priceCop: form.priceCop.value, prizeName: form.prizeName.value,
       prizeDescription: form.prizeDescription.value, prizeValueCop: form.prizeValueCop.value, requireMin: form.requireMin.checked, closesAt: form.closesAt.value };
-    if (await call('/api/admin/roulette', open ? 'PUT' : 'POST', body)) { dirty = false; form.dataset.filled = ''; render(); toast(open ? 'Cambios guardados.' : 'Ruleta creada.', 'ok'); }
+    if (await call('/api/admin/roulette', open ? 'PUT' : 'POST', body)) {
+      if (!open && pendingFile) {
+        try { await uploadImage(pendingFile); } catch (err) { toast('La ruleta se creó, pero la imagen no se pudo subir: ' + err.message, 'bad'); }
+        pendingFile = null; pendingUrl = ''; await load();
+      }
+      dirty = false; form.dataset.filled = ''; render(); toast(open ? 'Cambios guardados.' : 'Ruleta creada.', 'ok'); }
   });
   form.addEventListener('input', () => { dirty = true; });
   seatForm.addEventListener('submit', async e => {
@@ -190,23 +196,38 @@
 
   function showImg(version) {
     $('#rlImg').classList.toggle('hidden', !version); $('#rlNoImg').classList.toggle('hidden', Boolean(version));
-    if (version) $('#rlImg').src = `/api/roulette-image?v=${version}`;
+    if (version) $('#rlImg').src = version === 'pending' ? pendingUrl : `/api/roulette-image?v=${version}`;
+  }
+  async function prepareImage(f) {
+    if (!['image/jpeg', 'image/png'].includes(f.type)) throw new Error('Usa una imagen JPG o PNG.');
+    return f.size > MAX_PRIZE_BYTES ? await shrinkPrize(f) : f;
+  }
+  async function uploadImage(file) {
+    const fd = new FormData(); fd.append('image', file, file.name);
+    return (await api('/api/admin/roulette/image', { method: 'POST', body: fd })).version;
   }
   $('#rlImage').addEventListener('change', async e => {
     const f = e.target.files[0]; e.target.value = ''; const msg = $('#rlImageMessage'); if (!f) return;
     try {
-      if (!['image/jpeg', 'image/png'].includes(f.type)) throw new Error('Usa una imagen JPG o PNG.');
-      flash(msg, 'Subiendo imagen…');
-      const file = f.size > MAX_PRIZE_BYTES ? await shrinkPrize(f) : f;
-      const fd = new FormData(); fd.append('image', file, file.name);
-      const r = await api('/api/admin/roulette/image', { method: 'POST', body: fd });
-      showImg(r.version); flash(msg, 'Imagen actualizada.', 'success');
+      flash(msg, 'Preparando imagen…');
+      const file = await prepareImage(f);
+      if (isOpen()) {                       // ruleta abierta: se sube de una vez
+        showImg(await uploadImage(file)); flash(msg, 'Imagen actualizada. Ya se ve en la pantalla del live.', 'success');
+      } else {                              // todavía no hay ruleta: queda lista para subirse al crearla
+        pendingFile = file;
+        pendingUrl = await new Promise(ok => { const fr = new FileReader(); fr.onload = () => ok(fr.result); fr.readAsDataURL(file); }); // data: (la política de seguridad no permite blob:)
+        showImg('pending');
+        flash(msg, 'Imagen lista. Se sube al crear la ruleta.', 'success');
+      }
     } catch (err) { flash(msg, err.message, 'error'); }
   });
   $('#rlImageRemove').addEventListener('click', async () => {
     const msg = $('#rlImageMessage');
-    try { await api('/api/admin/roulette/image', { method: 'DELETE' }); showImg(null); flash(msg, 'Imagen eliminada.', 'success'); }
-    catch (err) { flash(msg, err.message, 'error'); }
+    try {
+      if (isOpen()) { await api('/api/admin/roulette/image', { method: 'DELETE' }); }
+      else { pendingFile = null; pendingUrl = ''; }
+      showImg(null); flash(msg, 'Imagen eliminada.', 'success');
+    } catch (err) { flash(msg, err.message, 'error'); }
   });
 
   /* Historial de ganadores (con nombres, solo para el admin) */

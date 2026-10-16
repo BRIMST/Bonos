@@ -120,15 +120,16 @@
           <label>Nombre del premio<input name="prizeName" maxlength="80" placeholder="Ej. Audífonos Bluetooth" required></label>
           <label>Descripción (opcional)<input name="prizeDescription" maxlength="300"></label>
           <label>Valor del premio en el mercado (COP)<input name="prizeValueCop" type="number" inputmode="numeric" min="1000" step="1000" placeholder="150000" required></label>
-          <label>Cierre automático de inscripciones (opcional, hora de Colombia)<input name="closesAt" type="datetime-local"></label>
-          <label class="check-row"><input type="checkbox" name="requireMin"><span>Solo se juega si lo recaudado llega al valor del premio</span></label>
-          <button class="primary" id="rlSave">Crear ruleta</button>
-          <div class="rl-img hidden" id="rlImgBox">
-            <div class="prize-preview"><img id="rlImg" alt="Premio" class="hidden"><span id="rlNoImg">Sin imagen</span></div>
-            <label class="file-btn secondary">Subir imagen del premio<input type="file" id="rlImage" accept="image/jpeg,image/png" hidden></label>
+          <div class="rl-img" id="rlImgBox">
+            <b>Imagen del premio</b>
+            <div class="prize-preview"><img id="rlImg" alt="Imagen del premio" class="hidden"><span id="rlNoImg">Sin imagen</span></div>
+            <label class="file-btn secondary">Subir imagen del premio (JPG o PNG)<input type="file" id="rlImage" accept="image/jpeg,image/png" hidden></label>
             <button type="button" class="secondary" id="rlImageRemove">Quitar imagen</button>
             <p id="rlImageMessage" class="notice" role="status"></p>
           </div>
+          <label>Cierre automático de inscripciones (opcional, hora de Colombia)<input name="closesAt" type="datetime-local"></label>
+          <label class="check-row"><input type="checkbox" name="requireMin"><span>Solo se juega si lo recaudado llega al valor del premio</span></label>
+          <button class="primary" id="rlSave">Crear ruleta</button>
         </form>
 
         <div>
