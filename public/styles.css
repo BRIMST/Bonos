@@ -535,12 +535,12 @@ body.live footer { color: #cfc8ff; }
 .rl-winner { background: #ffc82e; color: #1a1446; border-radius: 14px; padding: 12px 14px; display: grid; gap: 2px; }
 .rl-winner b { font-size: 34px; line-height: 1.1; } .rl-winner p { margin: 0; }
 .rl-img { display: grid; gap: 8px; margin-top: 14px; }
-.check { display: flex !important; align-items: center; gap: 8px; }
-.check input { width: 20px; height: 20px; flex: none; }
+.check-row { display: flex !important; align-items: center; gap: 8px; }
+.check-row input { width: 20px; height: 20px; flex: none; }
 .seat-chip { display: inline-flex; align-items: center; gap: 2px; background: #4b2fd0; color: #fff; border-radius: 8px; padding: 2px 4px 2px 8px; margin: 2px 4px 2px 0; font-weight: 700; font-size: 14px; }
 .seat-chip button { background: transparent; border: 0; color: #fff; font-size: 18px; line-height: 1; cursor: pointer; padding: 2px 6px; }
 @media (max-width: 520px) { .rl-nums { grid-template-columns: 1fr 1fr; } .rl-actions button { flex: 1 1 100%; } }
-.check span { flex: 1; min-width: 0; }
+.check-row span { flex: 1; min-width: 0; }
 .rl-actions button { font-size: 16px; font-family: inherit; }
 
 /* ---------- Selector de evento (Quinta / Ruleta) ---------- */
@@ -569,3 +569,56 @@ body.live .mode-state { color: #cfc8ff; }
 .demo-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; background: #ff8a3d; color: #1a1446; border-radius: 14px; padding: 10px 14px; margin-bottom: 14px; }
 .demo-bar span { flex: 1 1 200px; font-size: 14px; }
 .demo-bar button { min-height: 40px; }
+
+/* ---------- Reserva de puestos (pantalla pública de la ruleta) ---------- */
+.lookup-link { margin: 8px 0 0; font-size: 14px; }
+.lookup-link a { color: var(--gold); font-weight: 700; }
+.modes + .lookup-link, .wrap > .lookup-link { text-align: center; margin: 6px 0 0; }
+.wrap > .lookup-link a { color: var(--violet-deep); }
+body.live .wrap > .lookup-link a { color: var(--gold); }
+.close-clock { margin: 8px auto 0; display: inline-block; padding: 6px 16px; border-radius: 99px; background: rgba(255, 200, 46, .18); color: var(--gold); font-weight: 800; font-variant-numeric: tabular-nums; }
+.reserve { display: grid; gap: 14px; }
+.reserve h2 { margin: 0; }
+.reserve-steps { margin: 0; padding-left: 22px; display: grid; gap: 8px; color: #e6e2ff; }
+.reserve-steps b { color: #fff; }
+.reserve form { display: grid; gap: 14px; max-width: 560px; }
+.reserve label { color: #fff; }
+.reserve .picked { margin: 0; padding: 10px 12px; border-radius: 12px; background: rgba(255, 255, 255, .1); font-weight: 700; }
+.reserve .terms { display: flex; gap: 10px; align-items: flex-start; font-weight: 500; font-size: 14px; line-height: 1.4; }
+.reserve .terms input { width: 22px; height: 22px; flex: none; margin-top: 2px; }
+.reserve .terms a { color: var(--gold); }
+.reserve .notice { margin: 0; }
+.reserve-done { max-width: 560px; background: #16b47c; color: #fff; border-radius: 16px; padding: 16px; display: grid; gap: 8px; }
+.reserve-done b { font-size: 20px; } .reserve-done p { margin: 0; } .reserve-done a { color: #fff; font-weight: 800; }
+.reserve-done .secondary { justify-self: start; }
+.legend { display: inline-block; padding: 2px 10px; border-radius: 8px; font-size: 12px; font-weight: 800; margin-right: 4px; }
+.legend.on { background: #4b2fd0; color: #fff; }
+.legend.held { background: repeating-linear-gradient(45deg, #ff8a3d, #ff8a3d 6px, #ffa564 6px, #ffa564 12px); color: #1a1446; }
+.legend.free { background: rgba(255, 255, 255, .85); color: #1a1446; }
+button.seat { border: 0; font: inherit; cursor: default; }
+.seat.held { background: repeating-linear-gradient(45deg, #ff8a3d, #ff8a3d 6px, #ffa564 6px, #ffa564 12px); color: #1a1446; }
+.seat.free { background: rgba(255, 255, 255, .85); color: #1a1446; cursor: pointer; }
+.seat.free:hover { background: #fff; transform: translateY(-1px); }
+.seat.pick, .seat.free.pick { background: #ffc82e; color: #1a1446; outline: 3px solid #fff; }
+.seat:focus-visible { outline: 3px solid #ffc82e; outline-offset: 2px; }
+
+/* ---------- Consulta tu participación ---------- */
+.lookup-page { max-width: 640px; }
+.lookup-page h1 { margin: 0 0 6px; font-size: clamp(26px, 7vw, 36px); font-weight: 900; letter-spacing: -.02em; }
+.lookup-page form { display: grid; gap: 14px; margin-top: 14px; }
+.lookup-results { display: grid; gap: 10px; margin-top: 16px; }
+.lk { border-radius: 14px; padding: 14px; border-left: 6px solid #b9b0ee; background: var(--lav); display: grid; gap: 4px; }
+.lk p { margin: 0; } .lk small { color: var(--muted, #5b5780); }
+.lk.ok { border-color: #16b47c; } .lk.warn { border-color: #f59a1b; } .lk.bad { border-color: #e53b40; }
+
+/* ---------- Admin: reservas, WhatsApp, reportes, mantenimiento ---------- */
+.wa-btn { display: inline-block; text-decoration: none; background: #25d366; color: #0b3d1e; border-radius: 10px; font-weight: 800; padding: 8px 12px; font-size: 14px; }
+.wa-btn:hover { filter: brightness(1.06); }
+.maint { margin-top: 26px; padding-top: 18px; border-top: 2px solid var(--lav, #f1efff); display: grid; gap: 10px; }
+.maint h3 { margin: 6px 0 0; }
+.qr-modes { margin-top: 8px; }
+.rep td.empty { text-align: center; color: var(--muted, #5b5780); }
+.rep .neg { color: #b3262b; } .rep .pos { color: #0b7a54; }
+
+.reserve input[type=file] { color: var(--ink); }
+.reserve input[type=file]::file-selector-button { margin-right: 12px; }

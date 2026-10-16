@@ -4,7 +4,7 @@
   <meta charset="utf-8"><meta name="theme-color" content="#1a1446"><meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Administración | Juntos Sumamos</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%231a1446'/%3E%3Ctext x='16' y='23' font-size='20' font-weight='900' text-anchor='middle' fill='%23ffc82e' font-family='Arial'%3EB%3C/text%3E%3C/svg%3E">
-  <link rel="stylesheet" href="/styles.css"><script defer src="/admin.js"></script><script defer src="/admin-ruleta.js"></script>
+  <link rel="stylesheet" href="/styles.css"><script defer src="/admin.js"></script><script defer src="/admin-ruleta.js"></script><script defer src="/admin-mant.js"></script>
 </head>
 <body class="admin">
 <header class="top"><div class="wrap">
@@ -41,11 +41,12 @@
 
     <nav class="tabs" role="tablist" aria-label="Secciones del panel">
       <button class="tab active" role="tab" id="tab-registros" aria-selected="true" aria-controls="view-registros" data-tab="registros">Quinta · Registros <span class="badge hidden" id="pendingBadge">0</span></button>
-      <button class="tab" role="tab" id="tab-ruleta" aria-selected="false" aria-controls="view-ruleta" data-tab="ruleta">Ruleta de Seguidores</button>
+      <button class="tab" role="tab" id="tab-ruleta" aria-selected="false" aria-controls="view-ruleta" data-tab="ruleta">Ruleta de Seguidores <span class="badge hidden" id="rlBadge">0</span></button>
       <button class="tab" role="tab" id="tab-ganador" aria-selected="false" aria-controls="view-ganador" data-tab="ganador">Quinta · Ganador</button>
       <button class="tab" role="tab" id="tab-premio" aria-selected="false" aria-controls="view-premio" data-tab="premio">Quinta · Premio</button>
       <button class="tab" role="tab" id="tab-perfil" aria-selected="false" aria-controls="view-perfil" data-tab="perfil">Perfil y QR</button>
       <button class="tab" role="tab" id="tab-ajustes" aria-selected="false" aria-controls="view-ajustes" data-tab="ajustes">Pago y contraseña</button>
+      <button class="tab" role="tab" id="tab-reportes" aria-selected="false" aria-controls="view-reportes" data-tab="reportes">Reportes</button>
     </nav>
 
     <!-- 1. Registros -->
@@ -119,7 +120,8 @@
           <label>Nombre del premio<input name="prizeName" maxlength="80" placeholder="Ej. Audífonos Bluetooth" required></label>
           <label>Descripción (opcional)<input name="prizeDescription" maxlength="300"></label>
           <label>Valor del premio en el mercado (COP)<input name="prizeValueCop" type="number" inputmode="numeric" min="1000" step="1000" placeholder="150000" required></label>
-          <label class="check"><input type="checkbox" name="requireMin"><span>Solo se juega si lo recaudado llega al valor del premio</span></label>
+          <label>Cierre automático de inscripciones (opcional, hora de Colombia)<input name="closesAt" type="datetime-local"></label>
+          <label class="check-row"><input type="checkbox" name="requireMin"><span>Solo se juega si lo recaudado llega al valor del premio</span></label>
           <button class="primary" id="rlSave">Crear ruleta</button>
           <div class="rl-img hidden" id="rlImgBox">
             <div class="prize-preview"><img id="rlImg" alt="Premio" class="hidden"><span id="rlNoImg">Sin imagen</span></div>
@@ -139,6 +141,17 @@
             <label>Cantidad de puestos<input name="quantity" type="number" inputmode="numeric" min="1" max="100" value="1" required></label>
             <button class="primary">Agregar a la ruleta</button>
           </form>
+        </div>
+      </div>
+
+      <div id="rlReservations" class="hidden">
+        <h2>Reservas por revisar <span class="small">(pagos hechos por los seguidores)</span></h2>
+        <p class="small">Abre el comprobante, confirma la transferencia y aprueba: los puestos pasan a ocupados. Si rechazas, quedan libres.</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Participante</th><th>Puestos</th><th>Aporte</th><th>Acciones</th></tr></thead>
+            <tbody id="rlResRows"></tbody>
+          </table>
         </div>
       </div>
 
@@ -229,6 +242,10 @@
           <p class="small">Tus seguidores lo escanean con el celular para entrar a la página. Ponlo en tus videos, transmisiones o publicaciones.</p>
           <label>Dirección que abre el QR<input id="qrUrl" type="url" placeholder="https://tu-dominio.com"></label>
           <p class="small">Si ya tienes dominio propio, escríbelo aquí para que el QR apunte a él.</p>
+          <div class="control-group qr-modes">
+            <button type="button" class="secondary" data-qr="/">QR del Bono de la Quinta</button>
+            <button type="button" class="secondary" data-qr="/ruleta.html">QR de la Ruleta</button>
+          </div>
           <div class="qr-preview"><img id="qrImg" alt="Código QR de la página" width="260" height="260"></div>
           <div class="control-group">
             <button type="button" class="secondary" id="qrUpdate">Actualizar QR</button>
@@ -260,6 +277,43 @@
           <p id="passwordMessage" class="notice" role="status"></p>
         </form>
       </div>
+
+      <div class="maint">
+        <h2>Privacidad y respaldo</h2>
+        <div class="two-col">
+          <div>
+            <h3>Borrar comprobantes antiguos</h3>
+            <p class="small">Borra la imagen o el PDF de los comprobantes de eventos pasados. Se conserva una huella digital (sin datos personales) para seguir detectando comprobantes repetidos.</p>
+            <label>Borrar los de hace más de
+              <select id="purgeDays"><option value="30">30 días</option><option value="60">60 días</option><option value="90">90 días</option><option value="180">180 días</option></select></label>
+            <button type="button" class="secondary" id="purgeBtn">Borrar comprobantes</button>
+            <p id="purgeMsg" class="notice" role="status"></p>
+          </div>
+          <div>
+            <h3>Eliminar los datos de una persona</h3>
+            <p class="small">Para atender una solicitud de supresión (Ley 1581): anonimiza todos sus registros y borra sus comprobantes. No se puede deshacer.</p>
+            <label>Celular de la persona<input id="erasePhone" inputmode="numeric" maxlength="10" placeholder="3001234567"></label>
+            <button type="button" class="bad-btn small-btn" id="eraseBtn">Eliminar sus datos</button>
+            <p id="eraseMsg" class="notice" role="status"></p>
+          </div>
+        </div>
+        <h3>Copia de respaldo</h3>
+        <p class="small">Descarga un archivo con todos los registros, eventos, ruletas y ganadores (sin imágenes de comprobantes ni contraseñas). Guárdalo en un lugar seguro.</p>
+        <a class="secondary link-btn" href="/api/admin/backup.json" download>Descargar respaldo (.json)</a>
+      </div>
+    </section>
+
+    <!-- Reportes -->
+    <section class="panel view hidden" id="view-reportes" role="tabpanel" aria-labelledby="tab-reportes">
+      <h2>Reportes</h2>
+      <p class="small">Resumen de lo recaudado en cada evento. En la ruleta, el resultado es lo recaudado menos el valor del premio (solo cuando ya se sorteó).</p>
+      <h3>Por mes</h3>
+      <div class="table-wrap"><table class="rep"><thead><tr><th>Mes</th><th>Quinta (recaudo)</th><th>Ruleta (resultado)</th></tr></thead><tbody id="repMonths"></tbody></table></div>
+      <h3>Bono de la Quinta, por evento</h3>
+      <div class="table-wrap"><table class="rep"><thead><tr><th>Quinta del</th><th>Registros</th><th>Aceptados</th><th>Recaudo</th></tr></thead><tbody id="repQuinta"></tbody></table></div>
+      <h3>Ruletas</h3>
+      <div class="table-wrap"><table class="rep"><thead><tr><th>Ruleta</th><th>Estado</th><th>Puestos</th><th>Recaudo</th><th>Premio</th><th>Resultado</th></tr></thead><tbody id="repRuleta"></tbody></table></div>
+      <p id="repMsg" class="small"></p>
     </section>
   </div>
 </main>

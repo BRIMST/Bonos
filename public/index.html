@@ -10,11 +10,16 @@
   <meta property="og:description" content="Un bono donativo voluntario para apoyar a la comunidad. Gracias por tu apoyo.">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%231a1446'/%3E%3Ctext x='16' y='23' font-size='20' font-weight='900' text-anchor='middle' fill='%23ffc82e' font-family='Arial'%3EB%3C/text%3E%3C/svg%3E">
   <link rel="stylesheet" href="/styles.css">
-  <script defer src="/app.js"></script>
+  <script defer src="/app.js"></script><script defer src="/modes.js"></script>
 </head>
 <body>
   <header class="top"><div class="wrap"><span class="brand">Juntos <b>Sumamos</b></span><a href="/admin">Administración</a></div></header>
+  <div class="wrap"><nav class="modes" id="modes" aria-label="Elige el evento">
+    <a href="/" data-mode="quinta"><b>Bono de la Quinta</b><span class="mode-state">Cargando…</span></a>
+    <a href="/ruleta.html" data-mode="ruleta"><b>Ruleta de Seguidores</b><span class="mode-state">Cargando…</span></a>
+  </nav></div>
   <main class="wrap main">
+    <p class="lookup-link"><a href="/consulta.html">¿Ya aportaste? Consulta tu participación</a></p>
     <picture class="banner">
       <source type="image/webp" srcset="/banner-800.webp 800w, /banner-1600.webp 1600w" sizes="(min-width: 1072px) 1040px, calc(100vw - 32px)">
       <img src="/banner-1600.jpg" srcset="/banner-800.jpg 800w, /banner-1600.jpg 1600w" sizes="(min-width: 1072px) 1040px, calc(100vw - 32px)" width="1600" height="901" alt="Donaciones de la comunidad. ¡Gracias por tu apoyo!" fetchpriority="high">
@@ -104,7 +109,7 @@
           <span class="small">Las imágenes se reducen automáticamente. Un PDF debe pesar menos de 780 KB.</span>
         </label>
         <label class="terms"><input name="acceptedTerms" type="checkbox" required>
-          <span>Acepto que este es un bono de contribución voluntaria, certifico que soy mayor de edad y estoy de acuerdo con los términos del incentivo diario. Entiendo que mi registro solo es válido para la jornada de hoy si mi pago se verifica antes de las 7:00 PM. Entiendo que la participación de mi número es válida solo para el evento de hoy. En caso de empate, recibiré mi premio completo sin divisiones. Autorizo el tratamiento de mis datos personales según la <a href="/legal.html#privacidad" target="_blank" rel="noopener">política de privacidad</a> y declaro haber leído los <a href="/legal.html#terminos" target="_blank" rel="noopener">términos de participación</a>.</span>
+          <span>Acepto que este es un bono de contribución voluntaria, certifico que soy mayor de edad y estoy de acuerdo con los términos de participación. Entiendo que mi registro solo es válido para el evento abierto si mi pago se verifica antes del cierre del evento (7:00 p. m.), y que la participación de mi número no pasa a otros eventos. En caso de empate, recibiré mi premio completo sin divisiones. Autorizo el tratamiento de mis datos personales según la <a href="/legal.html#privacidad" target="_blank" rel="noopener">política de privacidad</a> y declaro haber leído los <a href="/legal.html#terminos" target="_blank" rel="noopener">términos de participación</a>.</span>
         </label>
         <button class="primary" id="submitBtn" type="submit">Enviar registro</button>
         <p id="formMessage" class="notice" role="status" aria-live="polite"></p>

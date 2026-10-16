@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8"><meta name="theme-color" content="#1a1446"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Consulta tu participación | Juntos Sumamos</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%231a1446'/%3E%3Ctext x='16' y='23' font-size='20' font-weight='900' text-anchor='middle' fill='%23ffc82e' font-family='Arial'%3EB%3C/text%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/styles.css"><script defer src="/consulta.js"></script>
+</head>
+<body>
+<header class="top"><div class="wrap"><span class="brand">Juntos <b>Sumamos</b></span><a href="/">Inicio</a></div></header>
+<main class="wrap main lookup-page">
+  <section class="panel">
+    <h1>Consulta tu participación</h1>
+    <p class="small">Escribe el celular con el que te registraste y tu número de 5 cifras (bono de la Quinta) o uno de tus puestos (ruleta).</p>
+    <form id="lookupForm" novalidate>
+      <label>Número de celular<input name="phone" type="tel" inputmode="numeric" maxlength="10" placeholder="3001234567" autocomplete="tel-national" required></label>
+      <label>Tu número de 5 cifras o tu puesto<input name="code" inputmode="numeric" maxlength="5" placeholder="00523 o 7" autocomplete="off" required></label>
+      <button class="primary" id="lookupBtn">Consultar</button>
+      <p id="lookupMsg" class="notice" role="status" aria-live="polite"></p>
+    </form>
+    <div id="lookupResults" class="lookup-results"></div>
+  </section>
+</main>
+<footer><div class="wrap">Juntos Sumamos · <a href="/">Bono de la Quinta</a> · <a href="/ruleta.html">Ruleta</a></div></footer>
+</body>
+</html>

@@ -148,9 +148,17 @@ function visible() {
   return records.filter(r => (filter === 'todos' || r.participationStatus === filter) &&
     (!q || [r.fullName, r.socialUser, r.phone, r.number, r.id].some(v => String(v || '').toLowerCase().includes(q))));
 }
+function waLink(r) {
+  if (!r.phone || r.participationStatus === 'pendiente_verificacion') return '';
+  const first = String(r.fullName || '').split(' ')[0];
+  const text = r.participationStatus === 'aceptada'
+    ? `Hola ${first}, tu pago fue verificado ✅. Tu número ${r.number} participa en la Quinta del ${r.assignedDate}. ¡Gracias por apoyar a la comunidad!`
+    : `Hola ${first}, no pudimos verificar tu pago del número ${r.number}. Si ya transferiste, envíanos por favor un comprobante legible.`;
+  return `<a class="wa-btn small-btn" target="_blank" rel="noopener" href="https://wa.me/57${esc(r.phone)}?text=${encodeURIComponent(text)}">WhatsApp</a>`;
+}
 function actionButtons(r) {
   return (r.participationStatus !== 'aceptada' ? `<button type="button" class="ok-btn small-btn" data-act="verificado" data-id="${esc(r.id)}">Verificar</button>` : '') +
-    (r.participationStatus !== 'rechazada' ? `<button type="button" class="bad-btn small-btn" data-act="rechazado" data-id="${esc(r.id)}">Rechazar</button>` : '');
+    (r.participationStatus !== 'rechazada' ? `<button type="button" class="bad-btn small-btn" data-act="rechazado" data-id="${esc(r.id)}">Rechazar</button>` : '') + waLink(r);
 }
 function render() {
   const list = visible();
@@ -217,7 +225,7 @@ async function openReceipt(id, trigger) {
   $('#modalClose').focus();
   try {
     const res = await fetch(`/api/admin/receipt/${encodeURIComponent(id)}`, { credentials: 'same-origin' });
-    if (!res.ok) throw new Error('No se pudo cargar el comprobante.');
+    if (!res.ok) { const j = await res.json().catch(() => null); throw new Error((j && j.error) || 'No se pudo cargar el comprobante.'); }
     const type = res.headers.get('content-type') || '';
     if (type.startsWith('image/')) {
       const blob = await res.blob();

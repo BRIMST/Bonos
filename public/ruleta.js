@@ -9,6 +9,8 @@
 
   const demoMode = new URLSearchParams(location.search).has('demo');
   const demo = { active: false };
+  const picked = new Set();
+  let gridSig = '', paymentKey = '', lastTick = -1;
   let data = null, seats = [], theta = 0, raf = 0, offset = 0;
   let seenVersion = null, animatingVersion = null, winnerSlice = -1, imgVersion = null;
 
@@ -60,6 +62,23 @@
     $('#hub').className = 'hub' + (cls ? ' ' + cls : '');
   }
 
+  /* ---------- Sonido (se activa con el botón; los navegadores no permiten sonar solos) ---------- */
+  let soundOn = false, actx = null;
+  function beep(freq, dur = 0.05, vol = 0.07, type = 'square', delay = 0) {
+    if (!soundOn) return;
+    try {
+      actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+      const o = actx.createOscillator(), g = actx.createGain(), t = actx.currentTime + delay;
+      o.type = type; o.frequency.value = freq; g.gain.setValueAtTime(vol, t);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur); o.connect(g); g.connect(actx.destination); o.start(t); o.stop(t + dur);
+    } catch { /* sin sonido */ }
+  }
+  $('#soundBtn').addEventListener('click', e => {
+    soundOn = !soundOn; e.currentTarget.textContent = soundOn ? '🔊 Sonido' : '🔇 Sonido'; e.currentTarget.setAttribute('aria-pressed', soundOn);
+    if (soundOn) beep(660, 0.08, 0.05, 'sine');
+  });
+  const fanfare = () => [523, 659, 784, 1047].forEach((f, i) => beep(f, 0.28, 0.09, 'triangle', i * 0.16));
+
   /* ---------- Giro sincronizado ---------- */
   function finalTheta(idx) {
     const a = TAU / seats.length, jitter = (((data.spinVersion % 97) / 97) - 0.5) * 0.6;
@@ -76,6 +95,7 @@
       theta = target * ease(p);
       const i = seatUnder(theta);
       setHub('Puesto', seats[i] ?? '', 'spin');
+      if (i !== lastTick) { lastTick = i; beep(880 + (i % 5) * 40, 0.025, 0.05); }
       draw();
       if (p < 1) { raf = requestAnimationFrame(frame); return; }
       finish(idx);
@@ -85,7 +105,7 @@
   function finish(idx) {
     animatingVersion = null; winnerSlice = idx; theta = finalTheta(idx);
     setHub('Ganador', seats[idx], 'win'); draw(); renderGrid();
-    showWinner();
+    fanfare(); showWinner();
   }
   function showFinalNow() {
     const idx = seats.indexOf(data.winnerSeat);
@@ -116,14 +136,35 @@
 
   /* ---------- Pantalla ---------- */
   function renderGrid() {
-    const occ = new Set(seats);
+    const occ = new Set(seats), held = new Set(data.held || []);
+    const canPick = data.status === 'abierta' && !demo.active;
+    for (const n of [...picked]) if (occ.has(n) || held.has(n) || !canPick) picked.delete(n);
+    const sig = [data.seatsTotal, seats.join(), [...held].join(), [...picked].join(), winnerSlice >= 0 ? data.winnerSeat : '', canPick].join('|');
+    if (sig === gridSig) return;
+    gridSig = sig;
     const g = $('#seatGrid'); const frag = document.createDocumentFragment();
     for (let n = 1; n <= data.seatsTotal; n++) {
-      const d = document.createElement('span');
-      d.className = 'seat' + (occ.has(n) ? ' on' : '') + (data.winnerSeat === n && winnerSlice >= 0 ? ' win' : '');
+      const free = !occ.has(n) && !held.has(n);
+      const d = document.createElement(free && canPick ? 'button' : 'span');
+      if (d.tagName === 'BUTTON') { d.type = 'button'; d.dataset.seat = n; d.setAttribute('aria-pressed', picked.has(n)); d.setAttribute('aria-label', `Puesto ${n}, libre`); }
+      d.className = 'seat' + (occ.has(n) ? ' on' : held.has(n) ? ' held' : free && canPick ? ' free' : '') + (picked.has(n) ? ' pick' : '') + (data.winnerSeat === n && winnerSlice >= 0 ? ' win' : '');
       d.textContent = n; frag.appendChild(d);
     }
     g.replaceChildren(frag);
+    updateReserve();
+  }
+  $('#seatGrid').addEventListener('click', e => {
+    const b = e.target.closest('[data-seat]'); if (!b) return;
+    const n = Number(b.dataset.seat);
+    if (picked.has(n)) picked.delete(n); else if (picked.size < 20) picked.add(n); else { $('#reserveMsg').textContent = 'Puedes reservar hasta 20 puestos a la vez.'; return; }
+    $('#reserveMsg').textContent = ''; gridSig = ''; renderGrid();
+  });
+  function updateReserve() {
+    if (!data || !data.exists) return;
+    const q = picked.size || Math.max(1, Math.min(20, Number($('#reserveForm').quantity.value) || 1));
+    $('#reserveTotal').textContent = copFmt(q * data.priceCop);
+    $('#pickedLine').textContent = picked.size ? `Elegiste: ${[...picked].sort((x, y) => x - y).join(', ')} (${picked.size} puesto${picked.size > 1 ? 's' : ''}).` : 'Aún no elegiste puestos: se te asignarán al azar.';
+    $('#qtyLabel').classList.toggle('hidden', picked.size > 0);
   }
   function render() {
     if (demo.active) return;
@@ -134,14 +175,17 @@
     seats = [...d.occupied].sort((a, b) => a - b);
     $('#liveName').textContent = d.name;
     const st = $('#liveStatus'); st.textContent = STATUS[d.status] || ''; st.className = 'live-chip ' + d.status;
-    $('#liveSub').textContent = d.status === 'cancelada' ? 'El organizador canceló este evento. Los aportes se devuelven.' : `Cada puesto es un número en la ruleta. Puesto: ${copFmt(d.priceCop)}.`;
+    $('#liveSub').textContent = d.status === 'cancelada' ? 'El organizador canceló este evento. Los aportes se devuelven.' : `Cada puesto es un número en la ruleta. Puesto: ${copFmt(d.priceCop)}.${d.status === 'cerrada' ? ' Las inscripciones ya cerraron.' : ''}`;
     $('#prizeLiveName').textContent = d.prize.name; $('#prizeLiveDesc').textContent = d.prize.description;
     const img = $('#prizeLiveImg');
     if (d.prize.imageVersion) { if (imgVersion !== d.prize.imageVersion) { img.src = `/api/roulette-image?v=${d.prize.imageVersion}`; imgVersion = d.prize.imageVersion; } img.classList.remove('hidden'); }
     else { img.classList.add('hidden'); imgVersion = null; }
     $('#seatCount').textContent = seats.length; $('#seatOf').textContent = ` de ${d.seatsTotal} puestos ocupados`;
     $('#seatFill').style.width = Math.round(seats.length / d.seatsTotal * 100) + '%';
-    $('#seatPrice').textContent = `Quedan ${d.seatsTotal - seats.length} puestos libres.`;
+    const heldN = (d.held || []).length;
+    $('#seatPrice').textContent = `Quedan ${d.seatsTotal - seats.length - heldN} puestos libres${heldN ? ` y ${heldN} apartados con pago por verificar` : ''}.`;
+    $('#reserve').classList.toggle('hidden', d.status !== 'abierta' || demo.active);
+    if (d.status === 'abierta') updateReserve();
 
     if (d.status === 'sorteada' && d.spinStartsAtIso) {
       const startAt = Date.parse(d.spinStartsAtIso), now = Date.now() + offset;
@@ -182,6 +226,66 @@
     });
     $('#demoReset').addEventListener('click', () => { demo.active = false; animatingVersion = null; seenVersion = null; winnerSlice = -1; $('#liveWinner').classList.add('hidden'); fetchOnce(); });
   }
+  /* ---------- Cuenta regresiva de cierre ---------- */
+  setInterval(() => {
+    const el = $('#closeClock');
+    if (!data || !data.exists || data.status !== 'abierta' || !data.closesAtIso || demo.active) { el.classList.add('hidden'); return; }
+    const left = Math.floor((Date.parse(data.closesAtIso) - (Date.now() + offset)) / 1000);
+    if (left <= 0) { el.classList.add('hidden'); if (!ticking) { ticking = true; fetchOnce().finally(() => { ticking = false; }); } return; }
+    const p = n => String(n).padStart(2, '0');
+    el.textContent = `Las inscripciones cierran en ${p(Math.floor(left / 3600))}:${p(Math.floor((left % 3600) / 60))}:${p(left % 60)}`;
+    el.classList.remove('hidden');
+  }, 1000);
+  let ticking = false;
+
+  /* ---------- Reserva de puestos ---------- */
+  fetch('/api/status').then(r => r.json()).then(st => {
+    paymentKey = st.brebValue || '';
+    $('#brebLabelR').textContent = st.brebLabel || 'la llave'; $('#brebValueR').textContent = st.brebValue || '';
+  }).catch(() => {});
+  $('#copyKeyR').addEventListener('click', async e => {
+    try { await navigator.clipboard.writeText(paymentKey); e.target.textContent = '¡Copiado!'; setTimeout(() => { e.target.textContent = 'Copiar'; }, 1800); } catch { /* sin portapapeles */ }
+  });
+  const MAX_BYTES = 780 * 1024;
+  async function shrinkImage(file) {
+    const bmp = await createImageBitmap(file);
+    let scale = Math.min(1, 1600 / Math.max(bmp.width, bmp.height));
+    for (let i = 0; i < 6; i++) {
+      const c = document.createElement('canvas'); c.width = Math.round(bmp.width * scale); c.height = Math.round(bmp.height * scale);
+      const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); x.drawImage(bmp, 0, 0, c.width, c.height);
+      for (const q of [0.85, 0.7, 0.55]) { const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', q)); if (blob && blob.size <= MAX_BYTES) return new File([blob], 'comprobante.jpg', { type: 'image/jpeg' }); }
+      scale *= 0.75;
+    }
+    throw new Error('No se pudo reducir la imagen. Usa una captura más liviana.');
+  }
+  const rForm = $('#reserveForm'), rMsg = $('#reserveMsg');
+  rForm.quantity.addEventListener('input', updateReserve);
+  rForm.phone.addEventListener('input', e => { e.target.value = e.target.value.replace(/\D/g, '').slice(0, 10); });
+  rForm.addEventListener('submit', async e => {
+    e.preventDefault();
+    if (!rForm.reportValidity()) return;
+    const btn = $('#reserveBtn'); btn.disabled = true; rMsg.className = 'notice'; rMsg.textContent = 'Enviando…';
+    try {
+      let f = rForm.receipt.files[0];
+      if (!f) throw new Error('Adjunta el comprobante.');
+      if (f.type === 'application/pdf') { if (f.size > MAX_BYTES) throw new Error('El PDF supera 780 KB. Envía una captura (JPG o PNG).'); }
+      else if (f.size > MAX_BYTES) f = await shrinkImage(f);
+      const fd = new FormData();
+      for (const k of ['fullName', 'socialUser', 'phone']) fd.append(k, rForm[k].value);
+      fd.append('quantity', rForm.quantity.value); fd.append('seats', [...picked].join(','));
+      fd.append('acceptedTerms', rForm.acceptedTerms.checked ? 'on' : ''); fd.append('receipt', f, f.name);
+      const res = await fetch('/api/roulette/reserve', { method: 'POST', body: fd });
+      const out = await res.json();
+      if (!res.ok) throw new Error(out.error || 'No se pudo reservar.');
+      picked.clear(); gridSig = ''; rForm.reset(); rForm.classList.add('hidden');
+      $('#reserveDoneText').textContent = `Tus puestos: ${out.seats.join(', ')}. Total a pagar: ${copFmt(out.amountCop)}.`;
+      $('#reserveDone').classList.remove('hidden'); rMsg.textContent = '';
+      fetchOnce();
+    } catch (err) { rMsg.className = 'notice error'; rMsg.textContent = err.message; fetchOnce(); }
+    btn.disabled = false;
+  });
+  $('#reserveAgain').addEventListener('click', () => { $('#reserveDone').classList.add('hidden'); rForm.classList.remove('hidden'); updateReserve(); });
+
   const fmtDay = iso => { const [y, m, d] = iso.split('-').map(Number); return new Intl.DateTimeFormat('es-CO', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }).format(new Date(Date.UTC(y, m - 1, d))); };
   async function loadHistory() {
     try {

@@ -10,7 +10,7 @@
 <body class="live">
 <header class="top"><div class="wrap">
   <span class="brand">Juntos <b>Sumamos</b> · Ruleta</span>
-  <span class="top-actions"><a href="/">Inicio</a></span>
+  <span class="top-actions"><button type="button" class="top-btn" id="soundBtn" aria-pressed="false">🔇 Sonido</button><a href="/">Inicio</a></span>
 </div></header>
 <div class="wrap"><nav class="modes" id="modes" aria-label="Elige el evento">
     <a href="/" data-mode="quinta"><b>Bono de la Quinta</b><span class="mode-state">Cargando…</span></a>
@@ -30,6 +30,8 @@
       <span class="live-chip" id="liveStatus"></span>
       <h1 id="liveName"></h1>
       <p class="live-sub" id="liveSub"></p>
+      <p class="close-clock hidden" id="closeClock" role="timer"></p>
+      <p class="lookup-link"><a href="/consulta.html">¿Ya reservaste? Consulta tu participación</a></p>
     </div>
 
     <div class="live-grid">
@@ -56,6 +58,34 @@
       </aside>
     </div>
 
+    <section class="seat-board reserve hidden" id="reserve" aria-labelledby="reserveTitle">
+      <h2 id="reserveTitle">Reserva tus puestos</h2>
+      <ol class="reserve-steps">
+        <li>Toca en el tablero de abajo los números libres que quieras, o déjalos al azar.</li>
+        <li>Transfiere <b id="reserveTotal">$ 0</b> a <b id="brebLabelR">la llave</b>: <b id="brebValueR"></b> <button type="button" class="secondary small-btn" id="copyKeyR">Copiar</button></li>
+        <li>Sube tu comprobante. Tus puestos quedan apartados hasta que verifiquemos el pago.</li>
+      </ol>
+      <form id="reserveForm" novalidate>
+        <p class="picked" id="pickedLine">Aún no elegiste puestos: se te asignarán al azar.</p>
+        <label id="qtyLabel">¿Cuántos puestos quieres?<input name="quantity" type="number" inputmode="numeric" min="1" max="20" value="1"></label>
+        <label>Nombre completo<input name="fullName" autocomplete="name" minlength="3" maxlength="120" required></label>
+        <label>Usuario de red social<input name="socialUser" placeholder="@usuario" maxlength="80" required></label>
+        <label>Número de celular<input name="phone" type="tel" inputmode="numeric" pattern="[0-9]{10}" maxlength="10" minlength="10" placeholder="3001234567" autocomplete="tel-national" required></label>
+        <label>Comprobante de pago (JPG, PNG o PDF)<input name="receipt" type="file" accept=".jpg,.jpeg,.png,.pdf,image/jpeg,image/png,application/pdf" required></label>
+        <label class="terms"><input name="acceptedTerms" type="checkbox" required>
+          <span>Soy mayor de edad y acepto los <a href="/terminos-ruleta.html" target="_blank" rel="noopener">términos de la ruleta</a> y la <a href="/legal.html#privacidad" target="_blank" rel="noopener">política de privacidad</a>. Entiendo que mis puestos solo participan si mi pago se verifica antes del cierre.</span>
+        </label>
+        <button class="primary" id="reserveBtn" type="submit">Reservar puestos</button>
+        <p id="reserveMsg" class="notice" role="status" aria-live="polite"></p>
+      </form>
+      <div class="reserve-done hidden" id="reserveDone" role="status">
+        <b>¡Reserva recibida!</b>
+        <p id="reserveDoneText"></p>
+        <p class="small">Cuando verifiquemos tu pago tus puestos quedan confirmados. Puedes revisarlo en <a href="/consulta.html">Consulta tu participación</a> con tu celular y uno de tus números.</p>
+        <button type="button" class="secondary" id="reserveAgain">Hacer otra reserva</button>
+      </div>
+    </section>
+
     <section class="seat-board hist-live hidden" id="liveHistory" aria-label="Ganadores anteriores">
       <h2>Ganadores anteriores</h2>
       <ul class="hist-list" id="liveHistoryList"></ul>
@@ -65,7 +95,7 @@
     <section class="seat-board" aria-label="Puestos">
       <h2>Puestos</h2>
       <div class="seat-grid" id="seatGrid"></div>
-      <p class="small">Los puestos ocupados aparecen en color. Por privacidad no se muestran nombres.</p>
+      <p class="small"><span class="legend on">Ocupado</span> <span class="legend held">Apartado (pago por verificar)</span> <span class="legend free">Libre</span> · Por privacidad no se muestran nombres.</p>
     </section>
   </div>
 
@@ -79,6 +109,6 @@
   </div>
   <canvas id="liveConfetti" aria-hidden="true"></canvas>
 </main>
-<footer><div class="wrap">Juntos Sumamos · Los nombres de los participantes no se publican.</div></footer>
+<footer><div class="wrap">Juntos Sumamos · Los nombres de los participantes no se publican. · <a href="/terminos-ruleta.html">Términos de la ruleta</a></div></footer>
 </body>
 </html>

@@ -2,7 +2,9 @@
 (() => {
   const form = $('#rlForm'), seatForm = $('#rlSeatForm');
   const JSON_H = { 'Content-Type': 'application/json' };
-  let view = null;
+  let view = null, dirty = false;
+  const wa = (phone, text) => phone ? `<a class="wa-btn small-btn" target="_blank" rel="noopener" href="https://wa.me/57${esc(phone)}?text=${encodeURIComponent(text)}">WhatsApp</a>` : '';
+  const localDT = iso => new Date(Date.parse(iso) - 5 * 3600e3).toISOString().slice(0, 16); // hora de Colombia (UTC-5)
   const STATUS = { abierta: ['Inscripciones abiertas', 'ok'], cerrada: ['Inscripciones cerradas', 'warn'], sorteada: ['Sorteada', 'ok'], cancelada: ['Cancelada', 'bad'] };
 
   let load = async function () {
@@ -33,10 +35,11 @@
     $('#rlBuyers').classList.toggle('hidden', !has || !view.buyers.length);
     if (!has) return;
 
-    if (!form.dataset.filled || open) {
+    if (!form.dataset.filled || (open && !dirty)) {
       form.name.value = r.name; form.seats.value = r.seatsTotal; form.priceCop.value = r.priceCop;
       form.prizeName.value = r.prize.name; form.prizeDescription.value = r.prize.description;
       form.prizeValueCop.value = r.prizeValueCop; form.requireMin.checked = r.requireMin;
+      form.closesAt.value = r.closesAtIso ? localDT(r.closesAtIso) : '';
       form.dataset.filled = '1';
     }
     showImg(r.prize.imageVersion);
@@ -55,7 +58,16 @@
       : b.state === 'naranja' ? `Equilibrio: lo recaudado cubre justo el premio (${money(b.diffCop)})`
         : `Ganancia: ${copFmt(b.diffCop)} por encima del premio`;
     $('#rlCollected').textContent = copFmt(b.collectedCop); $('#rlTarget').textContent = copFmt(b.targetCop);
-    $('#rlSeats').textContent = `${r.occupied.length}/${r.seatsTotal}`;
+    const held = (r.held || []).length;
+    $('#rlSeats').textContent = `${r.occupied.length}/${r.seatsTotal}${held ? ` (+${held} apartados)` : ''}`;
+    const nPend = (view.reservations || []).length;
+    const bd = $('#rlBadge'); bd.textContent = nPend; bd.classList.toggle('hidden', !nPend);
+    $('#rlReservations').classList.toggle('hidden', !nPend);
+    $('#rlResRows').innerHTML = (view.reservations || []).map(x => `<tr>
+      <td data-label="Participante"><b>${esc(x.fullName)}</b><br><span class="small">${esc(x.socialUser || '')} ${esc(x.phone || '')}</span>${x.duplicateReceipt ? '<br><span class="pill dup" title="Este comprobante ya se había enviado antes">Comprobante repetido</span>' : ''}</td>
+      <td data-label="Puestos">${x.seats.map(n => `<span class="seat-chip">${n}</span>`).join('')}</td>
+      <td data-label="Aporte">${copFmt(x.amountCop)}</td>
+      <td data-label="Acciones" class="actions"><button type="button" class="secondary small-btn" data-rview="${esc(x.id)}">Ver comprobante</button>${resButtons(x)}</td></tr>`).join('');
 
     const acts = [];
     if (r.status === 'abierta') acts.push(['close', 'Cerrar inscripciones', 'primary']);
@@ -69,7 +81,7 @@
       w.innerHTML = '<span>La ruleta está girando en la pantalla del live…</span><p>El ganador se mostrará aquí cuando termine la animación.</p>';
     } else if (view.winner) {
       w.classList.remove('hidden');
-      w.innerHTML = `<span>Puesto ganador</span><b>#${esc(view.winner.seat)}</b><p><b>${esc(view.winner.fullName)}</b>${view.winner.socialUser ? ' · ' + esc(view.winner.socialUser) : ''}${view.winner.phone ? '<br>Celular ' + esc(view.winner.phone) : ''}</p>`;
+      w.innerHTML = `<span>Puesto ganador</span><b>#${esc(view.winner.seat)}</b><p><b>${esc(view.winner.fullName)}</b>${view.winner.socialUser ? ' · ' + esc(view.winner.socialUser) : ''}${view.winner.phone ? '<br>Celular ' + esc(view.winner.phone) + ' · ' + wa(view.winner.phone, `¡Felicidades ${String(view.winner.fullName).split(' ')[0]}! Tu puesto #${view.winner.seat} ganó ${r.prize.name} en "${r.name}". Escríbenos para coordinar la entrega.`) : ''}</p>`;
     } else if (r.status === 'cancelada') {
       w.classList.remove('hidden');
       w.innerHTML = `<span>Evento cancelado${r.cancelReason ? ': ' + esc(r.cancelReason) : ''}</span><p>Por devolver <b>${copFmt(view.refunds.pendingCop)}</b> · Ya devuelto <b>${copFmt(view.refunds.doneCop)}</b></p>`;
@@ -82,10 +94,50 @@
         : `<span class="pill warn">Por devolver</span> <button type="button" class="ok-btn small-btn" data-refund="${esc(by.buyerId)}" data-done="1">Marcar devuelto</button>`;
       else if (r.status === 'sorteada') act = (!hide && by.seats.includes(r.winnerSeat)) ? '<span class="pill ok">Ganador</span>' : '';
       const seats = by.seats.map(n => `<span class="seat-chip">${n}${open ? `<button type="button" aria-label="Quitar puesto ${n}" data-del="${n}">×</button>` : ''}</span>`).join('');
+      const first = String(by.fullName || '').split(' ')[0];
+      const msgTxt = r.status === 'cancelada' ? `Hola ${first}, el evento "${r.name}" fue cancelado. Te devolveremos tu aporte de ${copFmt(by.amountCop)}.`
+        : (!hide && by.seats.includes(r.winnerSeat)) ? `¡Felicidades ${first}! Tu puesto #${r.winnerSeat} ganó ${r.prize.name} en "${r.name}". Escríbenos para coordinar la entrega.`
+        : `Hola ${first}, tu pago fue verificado ✅. Tus puestos en "${r.name}": ${by.seats.join(', ')}. ¡Gracias por apoyar a la comunidad!`;
+      act += ' ' + wa(by.phone, msgTxt);
       return `<tr><td data-label="Participante"><b>${esc(by.fullName)}</b><br><span class="small">${esc(by.socialUser || '')} ${esc(by.phone || '')}</span></td>
         <td data-label="Puestos">${seats}</td><td data-label="Aporte">${copFmt(by.amountCop)}</td><td data-label="Acciones" class="actions">${act}</td></tr>`;
     }).join('');
   }
+
+  const resButtons = x => `<button type="button" class="ok-btn small-btn" data-rapprove="${esc(x.id)}">Aprobar</button><button type="button" class="bad-btn small-btn" data-rreject="${esc(x.id)}">Rechazar</button>`;
+  async function openResReceipt(id, trigger) {
+    const x = (view.reservations || []).find(q => q.id === id); if (!x) return;
+    lastFocus = trigger || document.activeElement;
+    $('#modalTitle').textContent = x.fullName;
+    $('#modalSub').textContent = `Puestos ${x.seats.join(', ')} · ${copFmt(x.amountCop)} · ${x.socialUser || ''} ${x.phone || ''}`;
+    $('#modalBody').innerHTML = '<p class="small">Cargando comprobante…</p>';
+    $('#modalActions').innerHTML = resButtons(x);
+    modal.classList.remove('hidden'); document.body.style.overflow = 'hidden'; $('#modalClose').focus();
+    const dup = x.duplicateReceipt ? '<p class="dup-warn">Atención: este mismo comprobante ya se había enviado antes.</p>' : '';
+    try {
+      const res = await fetch(`/api/admin/receipt/${encodeURIComponent(id)}`, { credentials: 'same-origin' });
+      if (!res.ok) { const j = await res.json().catch(() => null); throw new Error((j && j.error) || 'No se pudo cargar el comprobante.'); }
+      if ((res.headers.get('content-type') || '').startsWith('image/')) {
+        const blob = await res.blob();
+        const url = await new Promise(ok => { const fr = new FileReader(); fr.onload = () => ok(fr.result); fr.readAsDataURL(blob); });
+        $('#modalBody').innerHTML = `${dup}<img src="${url}" alt="Comprobante de ${esc(x.fullName)}">`;
+      } else $('#modalBody').innerHTML = `${dup}<p>El comprobante es un PDF.</p><a class="primary link-btn" target="_blank" rel="noopener" href="/api/admin/receipt/${encodeURIComponent(id)}">Abrir PDF en otra pestaña</a>`;
+    } catch (err) { $('#modalBody').innerHTML = `${dup}<p class="notice error">${esc(err.message)}</p>`; }
+  }
+  async function reviewRes(id, action) {
+    if (action === 'reject' && !confirm('¿Rechazar esta reserva? Sus puestos quedan libres otra vez.')) return;
+    if (await call(`/api/admin/roulette/reservations/${encodeURIComponent(id)}/${action}`)) {
+      closeModal(); toast(action === 'approve' ? 'Reserva aprobada: los puestos ya participan.' : 'Reserva rechazada: puestos liberados.', action === 'approve' ? 'ok' : 'bad');
+    }
+  }
+  $('#rlResRows').addEventListener('click', e => {
+    const v = e.target.closest('[data-rview]'), a = e.target.closest('[data-rapprove]'), r = e.target.closest('[data-rreject]');
+    if (v) openResReceipt(v.dataset.rview, v); if (a) reviewRes(a.dataset.rapprove, 'approve'); if (r) reviewRes(r.dataset.rreject, 'reject');
+  });
+  $('#modalActions').addEventListener('click', e => {
+    const a = e.target.closest('[data-rapprove]'), r = e.target.closest('[data-rreject]');
+    if (a) reviewRes(a.dataset.rapprove, 'approve'); if (r) reviewRes(r.dataset.rreject, 'reject');
+  });
 
   async function call(url, method = 'POST', body) {
     const msg = $('#rlMessage');
@@ -97,7 +149,7 @@
 
   $('#rlActions').addEventListener('click', async e => {
     const k = e.target.closest('[data-act]')?.dataset.act; if (!k) return;
-    if (k === 'close') { if (confirm('¿Cerrar las inscripciones? Ya no se podrán agregar seguidores.')) await call('/api/admin/roulette/close'); }
+    if (k === 'close') { if (confirm('¿Cerrar las inscripciones? Ya no se podrán agregar seguidores.' + ((view.reservations || []).length ? `\n\nTienes ${view.reservations.length} reserva(s) por revisar: apruébalas o recházalas antes de girar.` : ''))) await call('/api/admin/roulette/close'); }
     else if (k === 'reopen') await call('/api/admin/roulette/reopen');
     else if (k === 'spin') {
       const b = view.bar;
@@ -120,9 +172,10 @@
     e.preventDefault();
     const open = view && view.exists && ['abierta', 'cerrada'].includes(view.roulette.status);
     const body = { name: form.name.value, seats: form.seats.value, priceCop: form.priceCop.value, prizeName: form.prizeName.value,
-      prizeDescription: form.prizeDescription.value, prizeValueCop: form.prizeValueCop.value, requireMin: form.requireMin.checked };
-    if (await call('/api/admin/roulette', open ? 'PUT' : 'POST', body)) { form.dataset.filled = ''; render(); toast(open ? 'Cambios guardados.' : 'Ruleta creada.', 'ok'); }
+      prizeDescription: form.prizeDescription.value, prizeValueCop: form.prizeValueCop.value, requireMin: form.requireMin.checked, closesAt: form.closesAt.value };
+    if (await call('/api/admin/roulette', open ? 'PUT' : 'POST', body)) { dirty = false; form.dataset.filled = ''; render(); toast(open ? 'Cambios guardados.' : 'Ruleta creada.', 'ok'); }
   });
+  form.addEventListener('input', () => { dirty = true; });
   seatForm.addEventListener('submit', async e => {
     e.preventDefault();
     const msg = $('#rlMessage');
@@ -186,5 +239,6 @@
 
   // Carga al abrir la pestaña y refresca solo mientras está visible.
   $('#tab-ruleta').addEventListener('click', load);
-  setInterval(() => { if (!document.hidden && !$('#view-ruleta').classList.contains('hidden') && !$('#app').classList.contains('hidden')) load(); }, 20000);
+  setInterval(() => { if (!document.hidden && !$('#app').classList.contains('hidden') && modal.classList.contains('hidden')) load(); }, 25000);
+  setTimeout(() => { if (!$('#app').classList.contains('hidden')) load(); }, 1500);
 })();
