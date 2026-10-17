@@ -4,7 +4,7 @@
   <meta charset="utf-8"><meta name="theme-color" content="#1a1446"><meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Administración | Juntos Sumamos</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%231a1446'/%3E%3Ctext x='16' y='23' font-size='20' font-weight='900' text-anchor='middle' fill='%23ffc82e' font-family='Arial'%3EB%3C/text%3E%3C/svg%3E">
-  <link rel="stylesheet" href="/styles.css"><script defer src="/admin.js"></script><script defer src="/admin-ruleta.js"></script><script defer src="/admin-mant.js"></script>
+  <link rel="stylesheet" href="/styles.css"><script defer src="/admin.js"></script><script defer src="/admin-ruleta.js"></script><script defer src="/admin-mant.js"></script><script defer src="/admin-comunidad.js"></script>
 </head>
 <body class="admin">
 <header class="top"><div class="wrap">
@@ -42,6 +42,7 @@
     <nav class="tabs" role="tablist" aria-label="Secciones del panel">
       <button class="tab active" role="tab" id="tab-registros" aria-selected="true" aria-controls="view-registros" data-tab="registros">Quinta · Registros <span class="badge hidden" id="pendingBadge">0</span></button>
       <button class="tab" role="tab" id="tab-ruleta" aria-selected="false" aria-controls="view-ruleta" data-tab="ruleta">Ruleta de Seguidores <span class="badge hidden" id="rlBadge">0</span></button>
+      <button class="tab" role="tab" id="tab-comunidad" aria-selected="false" aria-controls="view-comunidad" data-tab="comunidad">Portada y donaciones <span class="badge hidden" id="cmBadge">0</span></button>
       <button class="tab" role="tab" id="tab-ganador" aria-selected="false" aria-controls="view-ganador" data-tab="ganador">Quinta · Ganador</button>
       <button class="tab" role="tab" id="tab-premio" aria-selected="false" aria-controls="view-premio" data-tab="premio">Quinta · Premio</button>
       <button class="tab" role="tab" id="tab-perfil" aria-selected="false" aria-controls="view-perfil" data-tab="perfil">Perfil y QR</button>
@@ -117,6 +118,7 @@
           <label>Nombre del evento<input name="name" maxlength="80" placeholder="Ruleta de Seguidores"></label>
           <label>Cantidad de puestos<input name="seats" type="number" inputmode="numeric" min="2" max="1000" placeholder="50" required></label>
           <label>Precio por puesto (COP)<input name="priceCop" type="number" inputmode="numeric" min="1000" step="500" placeholder="5000" required></label>
+          <p class="small rl-suggest hidden" id="rlSuggest"></p>
           <label>Nombre del premio<input name="prizeName" maxlength="80" placeholder="Ej. Audífonos Bluetooth" required></label>
           <label>Descripción (opcional)<input name="prizeDescription" maxlength="300"></label>
           <label>Valor del premio en el mercado (COP)<input name="prizeValueCop" type="number" inputmode="numeric" min="1000" step="1000" placeholder="150000" required></label>
@@ -178,6 +180,83 @@
     </section>
 
     <!-- Número ganador -->
+    <section class="panel view hidden" id="view-comunidad" role="tabpanel" aria-labelledby="tab-comunidad">
+      <p class="small cm-top">Lo que configures aquí aparece en la <a href="/" target="_blank" rel="noopener">página principal ↗</a>.</p>
+
+      <div class="cm-block">
+        <h2>Meta de donaciones</h2>
+        <div id="cmGoalStat" class="cm-goalstat hidden">
+          <div class="rl-bar"><i id="cmFill"></i></div>
+          <p class="small" id="cmGoalText"></p>
+        </div>
+        <form id="cmGoalForm">
+          <label>¿Qué quieren conseguir?<input name="title" maxlength="80" placeholder="Ej. Silla gamer" required></label>
+          <label>Cuéntales para qué (opcional)<input name="description" maxlength="300" placeholder="Ej. Para transmitir más cómodos durante los directos"></label>
+          <label>Valor de la meta (COP)<input name="targetCop" inputmode="numeric" maxlength="10" placeholder="850000" required></label>
+          <div class="control-group">
+            <button class="primary" id="cmGoalSave">Guardar meta</button>
+            <button type="button" class="secondary hidden" id="cmGoalNew">Empezar una meta nueva</button>
+            <button type="button" class="bad-btn hidden" id="cmGoalDel">Quitar la meta</button>
+          </div>
+          <p class="small">Guardar mantiene lo recaudado. «Empezar una meta nueva» pone el contador en cero (las donaciones anteriores se conservan).</p>
+          <p id="cmGoalMsg" class="notice" role="status"></p>
+        </form>
+        <div id="cmGoalImgBox" class="cm-img hidden">
+          <img id="cmGoalImg" class="hidden" alt="Imagen de la meta" width="160" height="160">
+          <span class="small" id="cmGoalNoImg">Sin imagen</span>
+          <div class="control-group">
+            <label class="secondary file-btn">Subir imagen de la meta<input type="file" id="cmGoalFile" accept="image/jpeg,image/png" hidden></label>
+            <button type="button" class="secondary" id="cmGoalImgDel">Quitar imagen</button>
+          </div>
+          <p id="cmGoalImgMsg" class="notice" role="status"></p>
+        </div>
+      </div>
+
+      <div class="cm-block">
+        <h2>Donaciones <span class="small" id="cmDonSummary"></span></h2>
+        <div class="control-group cm-filter" id="cmDonFilter" role="group" aria-label="Filtrar donaciones">
+          <button type="button" class="secondary on" data-f="pendiente">Por revisar</button><button type="button" class="secondary" data-f="verificada">Verificadas</button><button type="button" class="secondary" data-f="rechazada">Rechazadas</button>
+        </div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Fecha</th><th>Nombre</th><th>Valor</th><th>Estado</th><th>Acciones</th></tr></thead>
+          <tbody id="cmDonRows"></tbody>
+        </table></div>
+        <p class="small hidden" id="cmDonEmpty">No hay donaciones en esta lista.</p>
+        <form id="cmManualForm" class="cm-manual">
+          <h3>Registrar una donación recibida por otra vía</h3>
+          <div class="cm-inline">
+            <label>Nombre<input name="alias" maxlength="30" placeholder="Ej. Ana"></label>
+            <label>Valor (COP)<input name="amountCop" inputmode="numeric" maxlength="10" placeholder="20000" required></label>
+            <button class="secondary">Agregar y verificar</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="cm-block">
+        <h2>Creadores</h2>
+        <p class="small">Aparecen en «Quiénes somos» con sus redes. Máximo 6. Guarda antes de subir la foto de cada uno.</p>
+        <div id="cmCreators" class="cm-creators"></div>
+        <div class="control-group">
+          <button type="button" class="secondary" id="cmAddCreator">+ Agregar creador</button>
+          <button type="button" class="primary" id="cmSaveCreators">Guardar creadores</button>
+        </div>
+        <p id="cmCreatorMsg" class="notice" role="status"></p>
+      </div>
+
+      <div class="cm-block">
+        <h2>Clips y momentos destacados</h2>
+        <p class="small">Pega el enlace de un video de YouTube (o short), de un video de TikTok o de un reel o publicación de Instagram. Máximo 12.</p>
+        <form id="cmClipForm" class="cm-inline">
+          <label>Título<input name="title" maxlength="80" placeholder="Ej. La mejor jugada de la noche" required></label>
+          <label>Enlace<input name="url" type="url" maxlength="300" placeholder="https://www.youtube.com/watch?v=…" required></label>
+          <label>Creador<select name="creatorId"><option value="">Sin asignar</option></select></label>
+          <button class="primary">Agregar clip</button>
+        </form>
+        <p id="cmClipMsg" class="notice" role="status"></p>
+        <ul id="cmClips" class="cm-clips"></ul>
+      </div>
+    </section>
+
     <section class="panel view hidden" id="view-ganador" role="tabpanel" aria-labelledby="tab-ganador">
       <h2>Número ganador del evento</h2>
       <p class="small">Publica el número según el resultado oficial de la Quinta. Al publicarlo aparece arriba en la página pública, cubierto por 5 burbujas que cada persona revienta para descubrir el número, una por una o todas a la vez.</p>
@@ -244,7 +323,8 @@
           <label>Dirección que abre el QR<input id="qrUrl" type="url" placeholder="https://tu-dominio.com"></label>
           <p class="small">Si ya tienes dominio propio, escríbelo aquí para que el QR apunte a él.</p>
           <div class="control-group qr-modes">
-            <button type="button" class="secondary" data-qr="/">QR del Bono de la Quinta</button>
+            <button type="button" class="secondary" data-qr="/">QR de la página principal</button>
+            <button type="button" class="secondary" data-qr="/quinta.html">QR del Bono de la Quinta</button>
             <button type="button" class="secondary" data-qr="/ruleta.html">QR de la Ruleta</button>
           </div>
           <div class="qr-preview"><img id="qrImg" alt="Código QR de la página" width="260" height="260"></div>

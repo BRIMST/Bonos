@@ -2,149 +2,125 @@
 <html lang="es">
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#123b72">
-  <title>Juntos Sumamos · Cada aporte cuenta</title>
-  <meta name="description" content="Juntos Sumamos: un bono donativo voluntario para apoyar a la comunidad. Cada aporte cuenta.">
+  <meta name="theme-color" content="#1a1446">
+  <title>Juntos Sumamos · Comunidad de creadores</title>
+  <meta name="description" content="Juntos Sumamos: conoce a los creadores, apoya la meta de la comunidad, mira los mejores momentos y participa en nuestros eventos.">
   <meta property="og:type" content="website"><meta property="og:locale" content="es_CO">
-  <meta property="og:title" content="Juntos Sumamos · Cada aporte cuenta">
-  <meta property="og:description" content="Un bono donativo voluntario para apoyar a la comunidad. Gracias por tu apoyo.">
+  <meta property="og:title" content="Juntos Sumamos · Comunidad de creadores">
+  <meta property="og:description" content="Conoce a los creadores, apoya la meta de la comunidad y participa en nuestros eventos.">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%231a1446'/%3E%3Ctext x='16' y='23' font-size='20' font-weight='900' text-anchor='middle' fill='%23ffc82e' font-family='Arial'%3EB%3C/text%3E%3C/svg%3E">
   <link rel="stylesheet" href="/styles.css">
-  <script defer src="/app.js"></script><script defer src="/modes.js"></script>
+  <script defer src="/home.js"></script><script defer src="/modes.js"></script>
 </head>
-<body>
-  <header class="top"><div class="wrap"><span class="brand">Juntos <b>Sumamos</b></span><a href="/admin">Administración</a></div></header>
-  <div class="wrap"><nav class="modes" id="modes" aria-label="Elige el evento">
-    <a href="/" data-mode="quinta"><b>Bono de la Quinta</b><span class="mode-state">Cargando…</span></a>
-    <a href="/ruleta.html" data-mode="ruleta"><b>Ruleta de Seguidores</b><span class="mode-state">Cargando…</span></a>
-  </nav></div>
-  <main class="wrap main">
-    <p class="lookup-link"><a href="/consulta.html">¿Ya aportaste? Consulta tu participación</a></p>
-    <picture class="banner">
-      <source type="image/webp" srcset="/banner-800.webp 800w, /banner-1600.webp 1600w" sizes="(min-width: 1072px) 1040px, calc(100vw - 32px)">
-      <img src="/banner-1600.jpg" srcset="/banner-800.jpg 800w, /banner-1600.jpg 1600w" sizes="(min-width: 1072px) 1040px, calc(100vw - 32px)" width="1600" height="901" alt="Donaciones de la comunidad. ¡Gracias por tu apoyo!" fetchpriority="high">
-    </picture>
+<body class="home">
+  <header class="top"><div class="wrap">
+    <span class="brand">Juntos <b>Sumamos</b></span>
+    <nav class="home-nav" aria-label="Secciones">
+      <a href="#eventos">Eventos</a><a href="#creadores" id="navCreators" class="hidden">Creadores</a><a href="#donar" id="navDonate" class="hidden">Donaciones</a><a href="#clips" id="navClips" class="hidden">Clips</a>
+    </nav>
+  </div></header>
 
-    <section class="winner hidden" id="winner" aria-labelledby="winnerTitle">
-      <h2 id="winnerTitle">¡Ya tenemos número ganador!</h2>
-      <p class="winner-src">Según el resultado de la Quinta, a nivel nacional.</p>
-      <p class="winner-sub" id="winnerSub">Toca cada burbuja para revelar el número, o revienta todas de una vez.</p>
-      <div class="bubbles" id="bubbles"></div>
-      <div class="winner-actions">
-        <button type="button" class="primary" id="popAll">Reventar todas</button>
-        <button type="button" class="secondary on-dark hidden" id="replayBubbles">Volver a cubrir</button>
-      </div>
-      <p class="winner-result hidden" id="winnerResult" role="status"></p>
-    </section>
-
-    <section class="prize hidden" id="prize" aria-labelledby="prizeName">
-      <div class="prize-pic hidden" id="prizePicBox"><img id="prizePic" alt="" width="640" height="640"></div>
-      <div class="prize-body">
-        <p class="prize-kicker" id="prizeKicker">El premio de este evento</p>
-        <h2 id="prizeName"></h2>
-        <p id="prizeDesc"></p>
-        <div class="choice" id="prizeChoice"></div>
+  <main class="wrap main home-main">
+    <section class="home-hero">
+      <p class="home-kicker">Comunidad de creadores de contenido</p>
+      <h1>Juntos <span>Sumamos</span></h1>
+      <p class="home-lead">Aquí conoces a quienes hacen el contenido, los sigues en sus redes, apoyas la meta de la comunidad y participas en los eventos de los directos.</p>
+      <div class="home-cta">
+        <a class="primary link-btn" href="#eventos">Ver eventos</a>
+        <a class="secondary on-dark link-btn hidden" id="heroDonate" href="#donar">Apoyar la meta</a>
       </div>
     </section>
 
-    <section class="how" aria-labelledby="howTitle">
-      <h2 id="howTitle">Es un bono donativo para apoyar a la comunidad</h2>
-      <ul>
-        <li><b>Tu aporte es voluntario.</b> Los $5.000 ayudan a que la comunidad siga creciendo.</li>
-        <li><b>Como agradecimiento,</b> tu número de 5 cifras participa por el premio del día.</li>
-        <li><b>El número ganador sale de la Quinta,</b> que se juega a nivel nacional. Aquí no se hace ningún sorteo propio.</li>
-      </ul>
+    <section class="home-sec" id="eventos" aria-labelledby="evTitle">
+      <h2 id="evTitle">Eventos</h2>
+      <p class="home-sub">Elige el juego en el que quieres participar.</p>
+      <nav class="modes event-cards" id="modes" aria-label="Elige el evento">
+        <a href="/quinta.html" data-mode="quinta"><i aria-hidden="true">🎟️</i><b>Bono de la Quinta</b><span class="ev-desc">Aporta $5.000 y tu número participa por el premio.</span><span class="mode-state">Cargando…</span></a>
+        <a href="/ruleta.html" data-mode="ruleta"><i aria-hidden="true">🎡</i><b>Ruleta de Seguidores</b><span class="ev-desc">Reserva tu puesto y mira el giro en vivo.</span><span class="mode-state">Cargando…</span></a>
+      </nav>
+      <p class="lookup-link"><a href="/consulta.html">¿Ya aportaste? Consulta tu participación</a></p>
     </section>
 
-    <section class="hero">
-      <h1>Cada aporte cuenta</h1>
-      <p>Gracias por ser parte de esta comunidad: con tu apoyo seguimos creciendo juntos. Y como agradecimiento, tu número participa por el premio de este evento. Envía tu comprobante y espera la verificación de tu pago antes del cierre del evento (7:00 p. m.).</p>
-      <div class="hero-row">
-        <div class="price">$5.000 <small>COP por registro</small></div>
-        <div class="clock" id="clock" role="timer" aria-live="off">
-          <span class="clock-label" id="clockLabel">Tiempo para el cierre del evento</span>
-          <span class="clock-time" id="countdown">--:--:--</span>
-        </div>
-      </div>
-      <div id="status" class="notice" role="status">Consultando hora de cierre…</div>
+    <section class="home-sec hidden" id="creadores" aria-labelledby="crTitle">
+      <h2 id="crTitle">Quiénes somos</h2>
+      <p class="home-sub">Síguenos en nuestras redes y no te pierdas ningún directo.</p>
+      <div class="creators" id="creatorList"></div>
     </section>
 
-
-    <ol class="steps">
-      <li>Haz tu aporte de $5.000 a la llave de pago</li>
-      <li>Escribe tu número de 5 cifras y sube el comprobante</li>
-      <li>Verificamos tu pago antes de las 7:00 p. m. y tu número queda aceptado</li>
-    </ol>
-
-    <section class="panel">
-      <h2>Haz tu aporte</h2>
-      <p>Cada aporte ayuda a que la comunidad siga creciendo. Haz la transferencia desde tu app bancaria. Enviar el formulario no confirma tu participación: el pago debe quedar verificado antes del cierre.</p>
-      <div class="payment">
-        <span id="brebLabel">Llave Bre-B</span>
-        <strong id="brebValue">Cargando…</strong>
-        <button type="button" class="secondary" id="copyKey">Copiar llave</button>
-      </div>
-      <p class="small">Confirma el destinatario en tu app antes de transferir. Si el pago no se verifica antes del cierre del evento (7:00 p. m.), el registro no participa ni pasa al siguiente evento: para otro evento necesitas un nuevo registro y pago.</p>
-    </section>
-
-    <section class="panel">
-      <h2>Registra tu número</h2>
-      <form id="registerForm">
-        <div class="ticket" aria-hidden="true">
-          <div class="ticket-main">
-            <small>Tu número</small>
-            <div class="digits" id="digits"></div>
+    <section class="home-sec hidden" id="donar" aria-labelledby="goalTitle">
+      <h2>Donaciones de la comunidad</h2>
+      <article class="goal" id="goalCard">
+        <div class="goal-pic hidden" id="goalPicBox"><img id="goalPic" alt="" width="640" height="640"></div>
+        <div class="goal-body">
+          <p class="goal-kicker" id="goalKicker">Nuestra meta</p>
+          <h3 id="goalTitle"></h3>
+          <p id="goalDesc" class="goal-desc"></p>
+          <div class="goal-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-labelledby="goalTitle" id="goalBar">
+            <i id="goalFill"></i><span class="goal-pct" id="goalPct">0%</span>
           </div>
-          <div class="ticket-stub"><span><b>$5.000</b>tu aporte</span></div>
+          <p class="goal-nums"><b id="goalRaised">$0</b> de <span id="goalTarget">$0</span><span class="goal-count" id="goalCount"></span></p>
+          <p class="goal-done hidden" id="goalDone">🎉 ¡Meta lograda! Gracias, comunidad.</p>
+          <button type="button" class="primary" id="donateOpen">Quiero donar</button>
         </div>
-        <label>Número de 5 cifras
-          <input name="number" inputmode="numeric" pattern="[0-9]{5}" maxlength="5" minlength="5" placeholder="00523" aria-describedby="numberHelp" autocomplete="off" required>
-          <span class="small" id="numberHelp">Puedes empezar con ceros. Varias personas pueden elegir el mismo número.</span>
-        </label>
-        <label>Nombre completo<input name="fullName" autocomplete="name" minlength="3" maxlength="120" required></label>
-        <label>Usuario de red social<input name="socialUser" placeholder="@usuario" maxlength="80" required></label>
-        <label>Número de celular<input name="phone" type="tel" inputmode="numeric" pattern="[0-9]{10}" maxlength="10" minlength="10" placeholder="3001234567" autocomplete="tel-national" required></label>
-        <label>Comprobante de pago (JPG, PNG o PDF)
-          <input name="receipt" type="file" accept=".jpg,.jpeg,.png,.pdf,image/jpeg,image/png,application/pdf" required>
-          <span class="small">Las imágenes se reducen automáticamente. Un PDF debe pesar menos de 780 KB.</span>
-        </label>
-        <label class="terms"><input name="acceptedTerms" type="checkbox" required>
-          <span>Acepto que este es un bono de contribución voluntaria, certifico que soy mayor de edad y estoy de acuerdo con los términos de participación. Entiendo que mi registro solo es válido para el evento abierto si mi pago se verifica antes del cierre del evento (7:00 p. m.), y que la participación de mi número no pasa a otros eventos. En caso de empate, recibiré mi premio completo sin divisiones. Autorizo el tratamiento de mis datos personales según la <a href="/legal.html#privacidad" target="_blank" rel="noopener">política de privacidad</a> y declaro haber leído los <a href="/legal.html#terminos" target="_blank" rel="noopener">términos de participación</a>.</span>
-        </label>
-        <button class="primary" id="submitBtn" type="submit">Enviar registro</button>
-        <p id="formMessage" class="notice" role="status" aria-live="polite"></p>
-      </form>
-    </section>
-    <section class="history hidden" id="history" aria-labelledby="historyTitle">
-      <h2 id="historyTitle">Números ganadores anteriores</h2>
-      <ul id="historyList"></ul>
+      </article>
+
+      <div class="wall hidden" id="wall">
+        <h3>Gracias a quienes ya donaron</h3>
+        <ul id="wallList"></ul>
+      </div>
+
+      <div class="panel donate hidden" id="donateBox">
+        <h3>Haz tu donación</h3>
+        <p class="small">La donación es voluntaria y ayuda a lograr la meta de la comunidad. <b>No incluye número ni participa en ningún sorteo.</b></p>
+        <div class="payment">
+          <span id="brebLabel">Llave Bre-B</span>
+          <strong id="brebValue">Cargando…</strong>
+          <button type="button" class="secondary" id="copyKey">Copiar llave</button>
+        </div>
+        <form id="donateForm" novalidate>
+          <fieldset class="amounts"><legend>¿Cuánto quieres donar? Tú decides</legend>
+            <div class="chips" id="amountChips">
+              <button type="button" data-amt="5000">$5.000</button><button type="button" data-amt="10000">$10.000</button><button type="button" data-amt="20000">$20.000</button><button type="button" data-amt="50000">$50.000</button>
+            </div>
+            <label>Escribe el valor que quieras donar (COP)<input name="amountCop" inputmode="numeric" maxlength="10" placeholder="Ej. 3000" autocomplete="off" required></label>
+            <span class="small">Cualquier valor sirve: no hay mínimo ni máximo.</span>
+          </fieldset>
+          <label>Nombre para mostrar en el muro de gracias (opcional)<input name="alias" maxlength="30" placeholder="Ej. Ana o @ana_gamer" autocomplete="off"></label>
+          <label>Comprobante de pago (JPG, PNG o PDF)
+            <input name="receipt" type="file" accept=".jpg,.jpeg,.png,.pdf,image/jpeg,image/png,application/pdf" required>
+            <span class="small">Las imágenes se reducen automáticamente. Un PDF debe pesar menos de 780 KB.</span>
+          </label>
+          <label class="terms"><input name="acceptedTerms" type="checkbox" required>
+            <span>Entiendo que es una donación voluntaria para la meta de la comunidad, que no participa en ningún sorteo, y que soy mayor de edad. Autorizo el uso del nombre que escribí para el muro de gracias y el tratamiento de mis datos según la <a href="/legal.html#privacidad" target="_blank" rel="noopener">política de privacidad</a>.</span>
+          </label>
+          <button class="primary" id="donateBtn" type="submit">Enviar donación</button>
+          <p id="donateMsg" class="notice" role="status" aria-live="polite"></p>
+        </form>
+      </div>
     </section>
 
-    <section class="about hidden" id="about" aria-labelledby="aboutTitle">
-      <h2 id="aboutTitle">Quiénes somos</h2>
-      <p id="aboutName" class="about-name"></p>
-      <p id="aboutBio"></p>
-      <div class="about-links" id="aboutLinks"></div>
+    <section class="home-sec hidden" id="clips" aria-labelledby="clipTitle">
+      <h2 id="clipTitle">Clips y momentos destacados</h2>
+      <div class="chips clip-filter hidden" id="clipFilter" role="group" aria-label="Filtrar por creador"></div>
+      <div class="clip-grid" id="clipGrid"></div>
     </section>
 
-    <p class="legal small">El aporte es voluntario y apoya a la comunidad. El número ganador corresponde al resultado de la Quinta, que se juega a nivel nacional; este sitio no realiza sorteos propios. Enviar el formulario no garantiza un premio: tu número participa solo si tu pago queda verificado antes de las 7:00 p. m.</p>
+    <p class="legal small">Juntos Sumamos es una comunidad de creadores de contenido. Las donaciones a la meta son voluntarias y no participan en sorteos. Los eventos tienen sus propios términos dentro de cada sección.</p>
   </main>
 
   <canvas id="confetti" aria-hidden="true"></canvas>
+  <div class="gift-toast" id="giftToast" role="status" aria-live="polite"><span class="gift-emoji" aria-hidden="true">💜</span><div><b id="giftTitle"></b><span id="giftSub"></span></div></div>
+
   <div class="success-overlay hidden" id="success" role="dialog" aria-modal="true" aria-labelledby="successTitle">
     <div class="thanks">
-      <svg class="check" viewBox="0 0 96 96" aria-hidden="true">
-        <circle class="ring" cx="48" cy="48" r="44"/>
-        <path class="tick" d="M28 49 l14 14 l27 -30"/>
-      </svg>
+      <svg class="check" viewBox="0 0 96 96" aria-hidden="true"><circle class="ring" cx="48" cy="48" r="44"/><path class="tick" d="M28 49 l14 14 l27 -30"/></svg>
       <h2 id="successTitle">¡Muchas gracias por tu apoyo!</h2>
-      <p class="luck">Buena suerte en el sorteo 🍀</p>
-      <div class="digits" id="thanksDigits" aria-label="Tu número"></div>
-      <p class="note">Recibimos tu registro. Tu número queda aceptado cuando verifiquemos el pago, antes del cierre del evento.</p>
-      <p class="code" id="thanksCode"></p>
+      <p class="luck">Tu aporte nos acerca a la meta 💜</p>
+      <p class="note">Recibimos tu donación. Se suma a la barra cuando verifiquemos el pago.</p>
       <button type="button" class="primary" id="closeSuccess">Listo</button>
     </div>
   </div>
-  <footer><div class="wrap">Juntos Sumamos · Hora de referencia: Colombia (Bogotá) · <a href="/legal.html#privacidad">Privacidad</a> · <a href="/legal.html#terminos">Términos</a></div></footer>
+
+  <footer><div class="wrap">Juntos Sumamos · <a href="/legal.html#privacidad">Privacidad</a> · <a href="/legal.html#terminos">Términos</a> · <a href="/admin">Administración</a></div></footer>
 </body>
 </html>

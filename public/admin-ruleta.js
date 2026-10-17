@@ -41,7 +41,7 @@
       form.prizeName.value = r.prize.name; form.prizeDescription.value = r.prize.description;
       form.prizeValueCop.value = r.prizeValueCop; form.requireMin.checked = r.requireMin;
       form.closesAt.value = r.closesAtIso ? localDT(r.closesAtIso) : '';
-      form.dataset.filled = '1';
+      form.dataset.filled = '1'; suggest();
     }
     if (open) showImg(r.prize.imageVersion);
 
@@ -251,6 +251,16 @@
     catch (err) { toast(err.message, 'bad'); }
     loadHistory();
   });
+  // Precio sugerido = valor del premio ÷ cantidad de puestos (redondeado hacia arriba a $500, para que llenar la ruleta cubra el premio).
+  function suggest() {
+    const seats = Number(form.seats.value), prize = Number(form.prizeValueCop.value), box = $('#rlSuggest');
+    if (!(seats >= 2 && prize > 0)) { box.classList.add('hidden'); return; }
+    const price = Math.max(500, Math.ceil(prize / seats / 500) * 500);
+    box.innerHTML = `Precio sugerido: <b>${copFmt(price)}</b> por puesto (premio ÷ puestos). <button type="button" class="secondary small-btn" id="rlUseSuggest">Usar este precio</button>`;
+    box.classList.remove('hidden');
+    $('#rlUseSuggest').onclick = () => { form.priceCop.value = price; dirty = true; };
+  }
+  form.seats.addEventListener('input', suggest); form.prizeValueCop.addEventListener('input', suggest);
   const baseLoad = load;
   load = async function () { await baseLoad(); if (!revealing()) await loadHistory(); };
 
