@@ -72,8 +72,9 @@ app.use(helmet({
       defaultSrc: ["'self'"],
       styleSrc: ["'self'", "'unsafe-inline'"],
       scriptSrc: ["'self'"],
-      imgSrc: ["'self'", 'data:'],
+      imgSrc: ["'self'", 'data:', 'https://i.ytimg.com'],
       connectSrc: ["'self'"],
+      frameSrc: ['https://www.youtube-nocookie.com', 'https://www.tiktok.com', 'https://www.instagram.com'],
       objectSrc: ["'none'"],
       frameAncestors: ["'none'"]
     }
@@ -90,7 +91,7 @@ app.use(cookieSession({
   maxAge: 2 * 60 * 60 * 1000
 }));
 app.use('/api/', rateLimit({ windowMs: 15 * 60 * 1000, limit: 100, standardHeaders: true, legacyHeaders: false,
-  skip: req => req.method === 'GET' && req.path === '/roulette' })); // la pantalla del live consulta seguido; tiene su propio límite
+  skip: req => req.method === 'GET' && (req.path === '/roulette' || req.path === '/community') })); // la pantalla del live consulta seguido; tiene su propio límite
 app.use(express.static(path.join(__dirname, 'public')));
 const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 10, standardHeaders: true, legacyHeaders: false,
   message: { error: 'Demasiados intentos. Espera 15 minutos e inténtalo de nuevo.' } });
@@ -751,7 +752,9 @@ async function receiptSeenBefore(hash) {
   const a = await db.collection('registrations').where('receiptHash', '==', hash).limit(1).get();
   if (!a.empty) return true;
   const b = await db.collection('rouletteReservations').where('receiptHash', '==', hash).limit(1).get();
-  return !b.empty;
+  if (!b.empty) return true;
+  const c = await db.collection('donations').where('receiptHash', '==', hash).limit(1).get();
+  return !c.empty;
 }
 async function rouletteSeats(rouletteId) {
   const snap = await db.collection('rouletteSeats').where('rouletteId', '==', rouletteId).limit(5000).get();
@@ -1229,6 +1232,15 @@ app.post('/api/admin/purge-receipts', requireAdmin, async (req, res, next) => {
         deleted++;
       }
     }
+    const dns = (await db.collection('donations').limit(5000).get()).docs.map(d => d.data());
+    for (const d of dns) {
+      const day = String(d.createdAtIso || '').slice(0, 10);
+      if (day && day < cutoff && d.hasReceipt && !d.receiptPurgedAt) {
+        await db.collection('receipts').doc(d.id).delete();
+        await db.collection('donations').doc(d.id).set({ receiptPurgedAt: new Date().toISOString() }, { merge: true });
+        deleted++;
+      }
+    }
     res.json({ ok: true, deleted, cutoff });
   } catch (err) { next(err); }
 });
@@ -1258,11 +1270,12 @@ app.post('/api/admin/person/erase', requireAdmin, async (req, res, next) => {
 app.get('/api/admin/backup.json', requireAdmin, async (_req, res, next) => {
   try {
     const out = { generatedAtIso: new Date().toISOString(), note: 'Copia sin imágenes de comprobantes ni contraseñas.' };
-    for (const name of ['registrations', 'rouletteSeats', 'rouletteReservations', 'rouletteWinners', 'rouletteHistory', 'events', 'winners']) {
+    for (const name of ['registrations', 'rouletteSeats', 'rouletteReservations', 'rouletteWinners', 'rouletteHistory', 'events', 'winners', 'donations']) {
       out[name] = (await db.collection(name).limit(5000).get()).docs.map(d => d.data());
     }
     const cur = await db.collection('roulette').doc('current').get();
     out.rouletteCurrent = cur.exists ? cur.data() : null;
+    out.community = await getCommunity();
     const { passwordSalt, passwordHash, ...safe } = await getSettings();
     out.settings = safe;
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
@@ -1297,6 +1310,275 @@ app.get('/api/admin/report', requireAdmin, async (_req, res, next) => {
     for (const e of quinta) { const m = String(e.quintaDate || '').slice(0, 7); if (m) { months[m] = months[m] || { month: m, quintaCop: 0, ruletaCop: 0 }; months[m].quintaCop += e.acceptedCop; } }
     for (const r of ruleta) { const m = String(r.createdAtIso || '').slice(0, 7); if (m && r.status === 'sorteada') { months[m] = months[m] || { month: m, quintaCop: 0, ruletaCop: 0 }; months[m].ruletaCop += r.resultCop; } }
     res.json({ quinta, ruleta, months: Object.values(months).sort((a, b) => b.month.localeCompare(a.month)) });
+  } catch (err) { next(err); }
+});
+
+
+// ---- Comunidad: creadores, meta de donaciones y clips (portada) ----
+const communityRef = db.collection('community').doc('current');
+async function getCommunity() { const s = await communityRef.get(); return s.exists ? s.data() : {}; }
+async function saveCommunity(mut) { const c = await getCommunity(); const out = mut(c) || c; await communityRef.set(out); return out; }
+const MAX_CREATORS = 6, MAX_CLIPS = 12, MAX_DONATION = 1000000000, MIN_DONATION = 1; // la donación es libre: solo debe ser un valor positivo
+const communityLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 300, standardHeaders: true, legacyHeaders: false });
+const donateLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 10, standardHeaders: true, legacyHeaders: false,
+  message: { error: 'Demasiados envíos desde esta conexión. Inténtalo más tarde.' } });
+
+// Convierte un enlace de YouTube, TikTok o Instagram en su dirección de inserción (lista cerrada de sitios).
+function parseClip(raw) {
+  let u; try { u = new URL(String(raw || '').trim()); } catch { return null; }
+  if (u.protocol !== 'https:' && u.protocol !== 'http:') return null;
+  const host = u.hostname.replace(/^(www|m)\./, '');
+  const path = u.pathname;
+  let m;
+  if (host === 'youtu.be') { m = path.match(/^\/([\w-]{11})$/); if (m) return yt(m[1], false); }
+  if (host === 'youtube.com') {
+    if (path === '/watch') { const v = u.searchParams.get('v') || ''; if (/^[\w-]{11}$/.test(v)) return yt(v, false); }
+    m = path.match(/^\/(shorts|live|embed)\/([\w-]{11})$/); if (m) return yt(m[2], m[1] === 'shorts');
+  }
+  if (host === 'tiktok.com') {
+    m = path.match(/^\/@[\w.-]+\/video\/(\d{8,25})$/);
+    if (m) return { platform: 'TikTok', embed: `https://www.tiktok.com/embed/v2/${m[1]}`, thumb: '', vertical: true };
+  }
+  if (host === 'instagram.com') {
+    m = path.match(/^\/(?:[\w.]+\/)?(reel|p)\/([\w-]{5,20})\/?$/);
+    if (m) return { platform: 'Instagram', embed: `https://www.instagram.com/${m[1]}/${m[2]}/embed`, thumb: '', vertical: true };
+  }
+  return null;
+  function yt(id, vertical) {
+    return { platform: 'YouTube', embed: `https://www.youtube-nocookie.com/embed/${id}`, thumb: `https://i.ytimg.com/vi/${id}/hqdefault.jpg`, vertical };
+  }
+}
+function publicCreator(c) { return { id: c.id, name: c.name, role: c.role || '', bio: c.bio || '', links: c.links || [], imageVersion: c.imageVersion || null }; }
+function publicGoal(g) {
+  if (!g || !g.id) return null;
+  return { id: g.id, title: g.title, description: g.description || '', targetCop: g.targetCop, raisedCop: g.raisedCop || 0,
+    donationsCount: g.donationsCount || 0, imageVersion: g.imageVersion || null, reached: (g.raisedCop || 0) >= g.targetCop };
+}
+// Recalcula lo recaudado de la meta actual a partir de las donaciones verificadas.
+async function recomputeGoal() {
+  const c = await getCommunity();
+  if (!c.goal || !c.goal.id) { await communityRef.set({ ...c, recent: [] }); return; }
+  const snap = await db.collection('donations').where('goalId', '==', c.goal.id).limit(5000).get();
+  const ok = snap.docs.map(d => d.data()).filter(d => d.status === 'verificada')
+    .sort((a, b) => String(b.verifiedAtIso).localeCompare(String(a.verifiedAtIso)));
+  const raised = ok.reduce((t, d) => t + d.amountCop, 0);
+  c.goal.raisedCop = raised; c.goal.donationsCount = ok.length;
+  if (raised >= c.goal.targetCop && !c.goal.reachedAtIso) c.goal.reachedAtIso = new Date().toISOString();
+  if (raised < c.goal.targetCop) c.goal.reachedAtIso = null;
+  c.recent = ok.slice(0, 8).map(d => ({ id: d.id, name: d.alias, amountCop: d.amountCop, atIso: d.verifiedAtIso }));
+  await communityRef.set(c);
+}
+
+app.get('/api/community', communityLimiter, async (_req, res, next) => {
+  try {
+    const c = await getCommunity();
+    res.setHeader('Cache-Control', 'public, max-age=0, s-maxage=5');
+    res.json({
+      creators: (c.creators || []).map(publicCreator),
+      goal: publicGoal(c.goal),
+      recent: c.recent || [],
+      clips: (c.clips || []).map(k => ({ id: k.id, creatorId: k.creatorId || null, title: k.title, platform: k.platform, embed: k.embed, thumb: k.thumb || '', vertical: Boolean(k.vertical) }))
+    });
+  } catch (err) { next(err); }
+});
+
+app.get('/api/community-image/:key', async (req, res, next) => {
+  try {
+    if (!/^(goal|[0-9a-f-]{36})$/.test(req.params.key)) return res.status(404).end();
+    const snap = await db.collection('communityImages').doc(req.params.key).get();
+    if (!snap.exists) return res.status(404).end();
+    const d = snap.data();
+    res.setHeader('Content-Type', d.mimeType);
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    res.send(Buffer.from(d.data));
+  } catch (err) { next(err); }
+});
+
+// Donación libre a la meta: no participa en ningún sorteo y no lleva número.
+app.post('/api/donate', donateLimiter, upload.single('receipt'), async (req, res, next) => {
+  try {
+    const c = await getCommunity();
+    if (!c.goal || !c.goal.id) return res.status(409).json({ error: 'Por ahora no hay una meta de donaciones activa.' });
+    const alias = cleanString(req.body.alias, 30) || 'Un seguidor';
+    const amountCop = Math.round(Number(req.body.amountCop));
+    const accepted = req.body.acceptedTerms === 'on' || req.body.acceptedTerms === 'true';
+    if (!(amountCop >= MIN_DONATION && amountCop <= MAX_DONATION)) return res.status(400).json({ error: 'Escribe cuánto quieres donar (un número mayor que cero).' });
+    if (!accepted) return res.status(400).json({ error: 'Debes confirmar que tu donación es voluntaria.' });
+    if (!req.file) return res.status(400).json({ error: 'Adjunta el comprobante de pago.' });
+    if (!matchesSignature(req.file.buffer, req.file.mimetype)) return res.status(400).json({ error: 'El archivo no es un JPG, PNG o PDF válido.' });
+    if (req.file.buffer.length > MAX_RECEIPT_BYTES) return res.status(413).json({ error: 'El comprobante pesa demasiado (máximo 800 KB).' });
+    const id = crypto.randomUUID();
+    const receiptHash = crypto.createHash('sha256').update(req.file.buffer).digest('hex');
+    const seenBefore = await receiptSeenBefore(receiptHash);
+    await db.collection('receipts').doc(id).set({
+      id, mimeType: req.file.mimetype, size: req.file.buffer.length, data: req.file.buffer,
+      createdDateBogota: dateInBogota(), kind: 'donacion'
+    });
+    await db.collection('donations').doc(id).set({
+      id, goalId: c.goal.id, alias, amountCop, status: 'pendiente', manual: false,
+      createdAtIso: new Date().toISOString(), hasReceipt: true, receiptHash, duplicateReceipt: seenBefore,
+      receiptMimeType: req.file.mimetype
+    });
+    res.status(201).json({ id, message: 'Recibimos tu donación. Se suma a la barra cuando verifiquemos el pago.' });
+  } catch (err) { next(err); }
+});
+
+// ---- Administración de la portada ----
+function donationView(d) {
+  return { id: d.id, alias: d.alias, amountCop: d.amountCop, status: d.status, manual: Boolean(d.manual), createdAtIso: d.createdAtIso,
+    hasReceipt: Boolean(d.hasReceipt), receiptPurged: Boolean(d.receiptPurgedAt), duplicateReceipt: Boolean(d.duplicateReceipt), goalId: d.goalId };
+}
+app.get('/api/admin/community', requireAdmin, async (_req, res, next) => {
+  try {
+    const c = await getCommunity();
+    const snap = await db.collection('donations').limit(5000).get();
+    const donations = snap.docs.map(d => d.data()).sort((a, b) => String(b.createdAtIso).localeCompare(String(a.createdAtIso))).slice(0, 300).map(donationView);
+    res.json({ creators: (c.creators || []).map(publicCreator), goal: publicGoal(c.goal), clips: c.clips || [], donations });
+  } catch (err) { next(err); }
+});
+
+app.put('/api/admin/community/creators', requireAdmin, async (req, res, next) => {
+  try {
+    const list = Array.isArray(req.body.creators) ? req.body.creators.slice(0, MAX_CREATORS) : [];
+    const out = [];
+    for (const raw of list) {
+      const name = cleanString(raw && raw.name, 60);
+      if (!name) return res.status(400).json({ error: 'Cada creador necesita un nombre.' });
+      const id = /^[0-9a-f-]{36}$/.test(raw.id || '') ? raw.id : crypto.randomUUID();
+      const links = [];
+      for (const l of (Array.isArray(raw.links) ? raw.links.slice(0, 6) : [])) {
+        const label = cleanString(l && l.label, 30), url = safeUrl(l && l.url);
+        if (!label && !(l && l.url)) continue;
+        if (!label || !url) return res.status(400).json({ error: `En "${name}", cada enlace necesita un nombre y una dirección que empiece por https://` });
+        links.push({ label, url });
+      }
+      out.push({ id, name, role: cleanString(raw.role, 60), bio: cleanString(raw.bio, 400), links });
+    }
+    const c = await getCommunity();
+    const prev = new Map((c.creators || []).map(x => [x.id, x]));
+    for (const x of out) x.imageVersion = (prev.get(x.id) || {}).imageVersion || null;
+    for (const x of c.creators || []) if (!out.some(o => o.id === x.id)) await db.collection('communityImages').doc(x.id).delete();
+    c.creators = out;
+    const removed = new Set((c.clips || []).map(k => k.creatorId).filter(id => id && !out.some(o => o.id === id)));
+    if (removed.size) c.clips = c.clips.map(k => removed.has(k.creatorId) ? { ...k, creatorId: null } : k);
+    await communityRef.set(c);
+    res.json({ ok: true, creators: out.map(publicCreator) });
+  } catch (err) { next(err); }
+});
+
+function parseGoalBody(b) {
+  const title = cleanString(b.title, 80), description = cleanString(b.description, 300);
+  const targetCop = Math.round(Number(b.targetCop));
+  if (title.length < 2) return { error: 'Escribe el nombre de la meta (ej. Silla gamer).' };
+  if (!(targetCop >= 10000 && targetCop <= 1000000000)) return { error: 'Escribe el valor de la meta (mínimo $10.000).' };
+  return { title, description, targetCop };
+}
+app.put('/api/admin/community/goal', requireAdmin, async (req, res, next) => {
+  try {
+    const g = parseGoalBody(req.body); if (g.error) return res.status(400).json({ error: g.error });
+    await saveCommunity(c => {
+      c.goal = c.goal && c.goal.id ? { ...c.goal, ...g } : { id: crypto.randomUUID(), ...g, raisedCop: 0, donationsCount: 0, imageVersion: null, createdAtIso: new Date().toISOString() };
+    });
+    await recomputeGoal();
+    res.json({ ok: true, goal: publicGoal((await getCommunity()).goal) });
+  } catch (err) { next(err); }
+});
+// Nueva meta: el contador vuelve a cero (las donaciones anteriores se conservan en su meta).
+app.post('/api/admin/community/goal/new', requireAdmin, async (req, res, next) => {
+  try {
+    const g = parseGoalBody(req.body); if (g.error) return res.status(400).json({ error: g.error });
+    await db.collection('communityImages').doc('goal').delete();
+    await saveCommunity(c => { c.goal = { id: crypto.randomUUID(), ...g, raisedCop: 0, donationsCount: 0, imageVersion: null, createdAtIso: new Date().toISOString() }; });
+    await recomputeGoal();
+    res.json({ ok: true, goal: publicGoal((await getCommunity()).goal) });
+  } catch (err) { next(err); }
+});
+app.delete('/api/admin/community/goal', requireAdmin, async (_req, res, next) => {
+  try {
+    await db.collection('communityImages').doc('goal').delete();
+    await saveCommunity(c => { c.goal = null; c.recent = []; });
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+
+app.post('/api/admin/community/image/:key', requireAdmin, upload.single('image'), async (req, res, next) => {
+  try {
+    const key = req.params.key;
+    if (!/^(goal|[0-9a-f-]{36})$/.test(key)) return res.status(404).json({ error: 'Imagen no válida.' });
+    if (!req.file) return res.status(400).json({ error: 'Selecciona una imagen.' });
+    if (!['image/jpeg', 'image/png'].includes(req.file.mimetype) || !matchesSignature(req.file.buffer, req.file.mimetype)) return res.status(400).json({ error: 'La imagen debe ser JPG o PNG.' });
+    if (req.file.buffer.length > MAX_RECEIPT_BYTES) return res.status(413).json({ error: 'La imagen pesa demasiado (máximo 800 KB).' });
+    const version = Date.now();
+    let found = true;
+    await saveCommunity(c => {
+      if (key === 'goal') { if (c.goal && c.goal.id) c.goal.imageVersion = version; else found = false; }
+      else { const cr = (c.creators || []).find(x => x.id === key); if (cr) cr.imageVersion = version; else found = false; }
+    });
+    if (!found) return res.status(404).json({ error: key === 'goal' ? 'Primero guarda la meta.' : 'Primero guarda al creador.' });
+    await db.collection('communityImages').doc(key).set({ mimeType: req.file.mimetype, data: req.file.buffer, version });
+    res.json({ ok: true, version });
+  } catch (err) { next(err); }
+});
+app.delete('/api/admin/community/image/:key', requireAdmin, async (req, res, next) => {
+  try {
+    const key = req.params.key;
+    if (!/^(goal|[0-9a-f-]{36})$/.test(key)) return res.status(404).json({ error: 'Imagen no válida.' });
+    await db.collection('communityImages').doc(key).delete();
+    await saveCommunity(c => {
+      if (key === 'goal') { if (c.goal) c.goal.imageVersion = null; }
+      else { const cr = (c.creators || []).find(x => x.id === key); if (cr) cr.imageVersion = null; }
+    });
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+
+app.post('/api/admin/community/clips', requireAdmin, async (req, res, next) => {
+  try {
+    const title = cleanString(req.body.title, 80);
+    const info = parseClip(req.body.url);
+    if (title.length < 2) return res.status(400).json({ error: 'Escribe un título para el clip.' });
+    if (!info) return res.status(400).json({ error: 'Pega un enlace de YouTube (video o short), TikTok (de un video) o Instagram (reel o publicación).' });
+    const c = await getCommunity();
+    if ((c.clips || []).length >= MAX_CLIPS) return res.status(409).json({ error: `Máximo ${MAX_CLIPS} clips. Elimina alguno para agregar otro.` });
+    const creatorId = (c.creators || []).some(x => x.id === req.body.creatorId) ? req.body.creatorId : null;
+    const clip = { id: crypto.randomUUID(), creatorId, title, url: safeUrl(req.body.url), ...info, createdAtIso: new Date().toISOString() };
+    c.clips = [clip, ...(c.clips || [])];
+    await communityRef.set(c);
+    res.status(201).json({ ok: true, clip });
+  } catch (err) { next(err); }
+});
+app.delete('/api/admin/community/clips/:id', requireAdmin, async (req, res, next) => {
+  try {
+    await saveCommunity(c => { c.clips = (c.clips || []).filter(k => k.id !== req.params.id); });
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+
+app.patch('/api/admin/donations/:id', requireAdmin, async (req, res, next) => {
+  try {
+    const status = req.body.status;
+    if (!['pendiente', 'verificada', 'rechazada'].includes(status)) return res.status(400).json({ error: 'Estado inválido.' });
+    const ref = db.collection('donations').doc(req.params.id);
+    const snap = await ref.get();
+    if (!snap.exists) return res.status(404).json({ error: 'Donación no encontrada.' });
+    const d = snap.data();
+    await ref.set({ status, verifiedAtIso: status === 'verificada' ? new Date().toISOString() : null }, { merge: true });
+    await recomputeGoal();
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+// Donación recibida por otra vía (efectivo, otro banco): se registra ya verificada.
+app.post('/api/admin/donations', requireAdmin, async (req, res, next) => {
+  try {
+    const c = await getCommunity();
+    if (!c.goal || !c.goal.id) return res.status(409).json({ error: 'Primero crea una meta.' });
+    const alias = cleanString(req.body.alias, 30) || 'Un seguidor';
+    const amountCop = Math.round(Number(req.body.amountCop));
+    if (!(amountCop >= MIN_DONATION && amountCop <= MAX_DONATION)) return res.status(400).json({ error: 'Escribe cuánto quieres donar (un número mayor que cero).' });
+    const id = crypto.randomUUID(), now = new Date().toISOString();
+    await db.collection('donations').doc(id).set({ id, goalId: c.goal.id, alias, amountCop, status: 'verificada', manual: true, createdAtIso: now, verifiedAtIso: now, hasReceipt: false });
+    await recomputeGoal();
+    res.status(201).json({ ok: true });
   } catch (err) { next(err); }
 });
 
