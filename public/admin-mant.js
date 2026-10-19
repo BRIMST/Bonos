@@ -2,6 +2,28 @@
 (() => {
   const JSON_H = { 'Content-Type': 'application/json' };
 
+
+  // Acceso de verificador (solo revisa pagos)
+  const vf = $('#verifierForm');
+  async function refreshVerifier() {
+    try {
+      const s = await api('/api/admin/settings');
+      $('#verifierState').textContent = s.hasVerifier ? 'Acceso de verificador activo.' : 'Sin acceso de verificador.';
+      $('#verifierDel').classList.toggle('hidden', !s.hasVerifier);
+    } catch { /* se verá al volver a abrir */ }
+  }
+  vf.addEventListener('submit', async e => {
+    e.preventDefault();
+    try { await api('/api/admin/verifier-password', { method: 'POST', headers: JSON_H, body: JSON.stringify({ password: vf.password.value }) }); vf.reset(); flash($('#verifierMsg'), 'Listo. Pásale la contraseña a tu verificador; entra desde la misma página de administración.', 'success'); refreshVerifier(); }
+    catch (err) { flash($('#verifierMsg'), err.message, 'error'); }
+  });
+  $('#verifierDel').addEventListener('click', async () => {
+    if (!confirm('¿Quitar el acceso del verificador? Su sesión se cierra de inmediato.')) return;
+    try { await api('/api/admin/verifier-password', { method: 'DELETE' }); flash($('#verifierMsg'), 'Acceso eliminado.', 'success'); refreshVerifier(); }
+    catch (err) { flash($('#verifierMsg'), err.message, 'error'); }
+  });
+  $('#tab-ajustes').addEventListener('click', refreshVerifier);
+
   // QR de cada vista
   document.querySelectorAll('[data-qr]').forEach(b => b.addEventListener('click', () => {
     $('#qrUrl').value = location.origin + b.dataset.qr; $('#qrUpdate').click();

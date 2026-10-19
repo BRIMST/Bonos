@@ -30,14 +30,16 @@ function showApp(show) {
   appBox.classList.toggle('hidden', !show);
   logoutBtn.classList.toggle('hidden', !show);
 }
-async function startApp() {
+async function startApp(role) {
+  document.body.classList.toggle('role-verifier', role === 'verifier');
+  $('#roleChip').classList.toggle('hidden', role !== 'verifier');
   showApp(true);
   await Promise.all([loadSettings(), load(true)]);
 }
 async function checkSession() {
   try {
     const data = await api('/api/admin/me');
-    if (data.authenticated) await startApp(); else showApp(false);
+    if (data.authenticated) await startApp(data.role); else showApp(false);
   } catch { showApp(false); }
 }
 $('#loginForm').addEventListener('submit', async e => {
@@ -45,9 +47,9 @@ $('#loginForm').addEventListener('submit', async e => {
   const f = e.target, msg = $('#loginMessage');
   flash(msg, 'Validando…');
   try {
-    await api('/api/admin/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: f.password.value }) });
+    const out = await api('/api/admin/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: f.password.value }) });
     f.reset(); flash(msg, '');
-    await startApp();
+    await startApp(out.role);
   } catch (err) { flash(msg, err.message, 'error'); }
 });
 logoutBtn.addEventListener('click', async () => {
@@ -218,7 +220,7 @@ async function openReceipt(id, trigger) {
   const r = records.find(x => x.id === id); if (!r) return;
   lastFocus = trigger || document.activeElement;
   $('#modalTitle').textContent = r.fullName;
-  $('#modalSub').textContent = `Número ${r.number}, ${r.socialUser}, ${r.phone}. Estado: ${LABELS[r.participationStatus] || 'Por revisar'}.`;
+  $('#modalSub').textContent = `Número ${r.number}, ${r.socialUser}, ${r.phone}.${r.reference ? ` Referencia: ${r.reference}.` : ''} Estado: ${LABELS[r.participationStatus] || 'Por revisar'}.`;
   $('#modalBody').innerHTML = '<p class="small">Cargando comprobante…</p>';
   $('#modalActions').innerHTML = actionButtons(r);
   const dupNote = r.duplicateReceipt ? '<p class="dup-warn">Atención: este mismo comprobante ya se había enviado en otro registro.</p>' : '';

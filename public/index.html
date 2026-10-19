@@ -3,6 +3,7 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#1a1446">
+  <link rel="manifest" href="/manifest.webmanifest"><link rel="apple-touch-icon" href="/icon-192.png"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="Juntos Sumamos">
   <title>Juntos Sumamos · Comunidad de creadores</title>
   <meta name="description" content="Juntos Sumamos: conoce a los creadores, apoya la meta de la comunidad, mira los mejores momentos y participa en nuestros eventos.">
   <meta property="og:type" content="website"><meta property="og:locale" content="es_CO">
@@ -18,8 +19,10 @@
     <nav class="home-nav" aria-label="Secciones">
       <a href="#eventos">Eventos</a><a href="#creadores" id="navCreators" class="hidden">Creadores</a><a href="#donar" id="navDonate" class="hidden">Donaciones</a><a href="#clips" id="navClips" class="hidden">Clips</a>
     </nav>
+    <button type="button" class="install-btn hidden" id="installBtn">Instalar app</button>
   </div></header>
 
+  <a class="live-banner hidden" id="liveBanner" href="#" target="_blank" rel="noopener noreferrer"><span class="live-dot" aria-hidden="true"></span><b>EN VIVO ahora</b><span id="liveTitle"></span><u>Ver transmisión →</u></a>
   <main class="wrap main home-main">
     <section class="home-hero">
       <p class="home-kicker">Comunidad de creadores de contenido</p>
@@ -41,6 +44,11 @@
       <p class="lookup-link"><a href="/consulta.html">¿Ya aportaste? Consulta tu participación</a></p>
     </section>
 
+    <section class="home-sec hidden" id="agenda" aria-labelledby="agTitle">
+      <h2 id="agTitle">Próximos directos</h2>
+      <ul class="agenda" id="agendaList"></ul>
+    </section>
+
     <section class="home-sec hidden" id="creadores" aria-labelledby="crTitle">
       <h2 id="crTitle">Quiénes somos</h2>
       <p class="home-sub">Síguenos en nuestras redes y no te pierdas ningún directo.</p>
@@ -56,17 +64,21 @@
           <h3 id="goalTitle"></h3>
           <p id="goalDesc" class="goal-desc"></p>
           <div class="goal-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-labelledby="goalTitle" id="goalBar">
-            <i id="goalFill"></i><span class="goal-pct" id="goalPct">0%</span>
+            <i id="goalFill"></i><b class="goal-mark" style="left:25%"></b><b class="goal-mark" style="left:50%"></b><b class="goal-mark" style="left:75%"></b><span class="goal-pct" id="goalPct">0%</span>
           </div>
           <p class="goal-nums"><b id="goalRaised">$0</b> de <span id="goalTarget">$0</span><span class="goal-count" id="goalCount"></span></p>
           <p class="goal-done hidden" id="goalDone">🎉 ¡Meta lograda! Gracias, comunidad.</p>
-          <button type="button" class="primary" id="donateOpen">Quiero donar</button>
+          <div class="goal-actions"><button type="button" class="primary" id="donateOpen">Quiero donar</button><button type="button" class="secondary" id="shareGoal">Compartir meta</button></div>
         </div>
       </article>
 
       <div class="wall hidden" id="wall">
         <h3>Gracias a quienes ya donaron</h3>
         <ul id="wallList"></ul>
+      </div>
+      <div class="wall wall-top hidden" id="topBox">
+        <h3>🏆 Quienes más aportaron este mes</h3>
+        <ol id="topList"></ol>
       </div>
 
       <div class="panel donate hidden" id="donateBox">
@@ -86,10 +98,12 @@
             <span class="small">Cualquier valor sirve: no hay mínimo ni máximo.</span>
           </fieldset>
           <label>Nombre para mostrar en el muro de gracias (opcional)<input name="alias" maxlength="30" placeholder="Ej. Ana o @ana_gamer" autocomplete="off"></label>
+          <label>Tu celular (opcional)<input name="phone" type="tel" inputmode="numeric" maxlength="10" placeholder="3001234567" autocomplete="tel-national"><span class="small">Solo lo usamos para agradecerte por WhatsApp. No se publica.</span></label>
           <label>Comprobante de pago (JPG, PNG o PDF)
             <input name="receipt" type="file" accept=".jpg,.jpeg,.png,.pdf,image/jpeg,image/png,application/pdf" required>
             <span class="small">Las imágenes se reducen automáticamente. Un PDF debe pesar menos de 780 KB.</span>
           </label>
+          <label>Referencia de la transferencia (opcional)<input name="reference" maxlength="40" placeholder="Ej. M12345678" autocomplete="off"><span class="small">El código que aparece en tu comprobante. Ayuda a verificar tu pago más rápido.</span></label>
           <label class="terms"><input name="acceptedTerms" type="checkbox" required>
             <span>Entiendo que es una donación voluntaria para la meta de la comunidad, que no participa en ningún sorteo, y que soy mayor de edad. Autorizo el uso del nombre que escribí para el muro de gracias y el tratamiento de mis datos según la <a href="/legal.html#privacidad" target="_blank" rel="noopener">política de privacidad</a>.</span>
           </label>
@@ -97,6 +111,12 @@
           <p id="donateMsg" class="notice" role="status" aria-live="polite"></p>
         </form>
       </div>
+    </section>
+
+    <section class="home-sec hidden" id="logradas" aria-labelledby="pgTitle">
+      <h2 id="pgTitle">Metas logradas</h2>
+      <p class="home-sub">Gracias a la comunidad, esto ya es realidad.</p>
+      <div class="past-grid" id="pastGrid"></div>
     </section>
 
     <section class="home-sec hidden" id="clips" aria-labelledby="clipTitle">

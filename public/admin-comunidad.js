@@ -1,7 +1,7 @@
 /* Pestaña "Portada y donaciones". Usa $, api, esc, flash, toast, copFmt, modal y closeModal de admin.js */
 (() => {
   const JSON_H = { 'Content-Type': 'application/json' };
-  let view = null, creators = [], filter = 'pendiente', savedIds = new Set(), goalDirty = false;
+  let view = null, creators = [], filter = 'pendiente', savedIds = new Set(), goalDirty = false, liveDirty = false, agendaDirty = false, agenda = [];
   const uid = () => (crypto.randomUUID ? crypto.randomUUID() : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => { const r = Math.random() * 16 | 0; return (c === 'x' ? r : (r & 3 | 8)).toString(16); }));
   const when = iso => new Intl.DateTimeFormat('es-CO', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'America/Bogota' }).format(new Date(iso));
   const ST = { pendiente: ['Por revisar', 'warn'], verificada: ['Verificada', 'ok'], rechazada: ['Rechazada', 'bad'] };
@@ -89,7 +89,8 @@
       const rcpt = d.hasReceipt && !d.receiptPurged ? `<button type="button" class="secondary small-btn" data-rc="${esc(d.id)}">Ver comprobante</button>` : (d.manual ? '<span class="small">Manual</span>' : '<span class="small">Sin comprobante</span>');
       const acts = d.status === 'pendiente' ? `<button type="button" class="ok-btn small-btn" data-st="verificada" data-id="${esc(d.id)}">Verificar</button> <button type="button" class="bad-btn small-btn" data-st="rechazada" data-id="${esc(d.id)}">Rechazar</button>`
         : `<button type="button" class="secondary small-btn" data-st="${d.status === 'verificada' ? 'rechazada' : 'verificada'}" data-id="${esc(d.id)}">${d.status === 'verificada' ? 'Rechazar' : 'Verificar'}</button>`;
-      return `<tr><td data-label="Fecha">${esc(when(d.createdAtIso))}</td><td data-label="Nombre">${esc(d.alias)}${d.duplicateReceipt ? '<br><span class="dup-warn">Comprobante repetido</span>' : ''}</td><td data-label="Valor"><b>${copFmt(d.amountCop)}</b></td><td data-label="Estado"><span class="pill ${kind}">${label}</span></td><td data-label="Acciones" class="actions">${rcpt} ${acts}</td></tr>`;
+      const thanks = d.status === 'verificada' && d.phone ? `<a class="wa-btn small-btn" target="_blank" rel="noopener" href="https://wa.me/57${esc(d.phone)}?text=${encodeURIComponent(`¡Hola ${d.alias}! Gracias por tu donación de ${copFmt(d.amountCop)} a la meta de Juntos Sumamos. Ya quedó verificada 💜`)}">Agradecer</a>` : '';
+      return `<tr><td data-label="Fecha">${esc(when(d.createdAtIso))}</td><td data-label="Nombre">${esc(d.alias)}${d.reference ? `<br><span class="small">Ref. ${esc(d.reference)}</span>` : ''}${d.duplicateReceipt ? '<br><span class="dup-warn">Comprobante o referencia repetidos</span>' : ''}</td><td data-label="Valor"><b>${copFmt(d.amountCop)}</b></td><td data-label="Estado"><span class="pill ${kind}">${label}</span></td><td data-label="Acciones" class="actions">${rcpt} ${acts} ${thanks}</td></tr>`;
     }).join('');
   }
   $('#cmDonFilter').addEventListener('click', e => { const b = e.target.closest('[data-f]'); if (b) { filter = b.dataset.f; renderDonations(); } });
@@ -105,12 +106,12 @@
     const d = view.donations.find(x => x.id === id); if (!d) return;
     lastFocus = trigger;
     $('#modalTitle').textContent = `Donación de ${d.alias}`;
-    $('#modalSub').textContent = `${copFmt(d.amountCop)} · ${ST[d.status][0]}`;
+    $('#modalSub').textContent = `${copFmt(d.amountCop)} · ${ST[d.status][0]}${d.reference ? ` · Ref. ${d.reference}` : ''}`;
     $('#modalBody').innerHTML = '<p class="small">Cargando comprobante…</p>';
     $('#modalActions').innerHTML = d.status === 'pendiente' ? `<button type="button" class="ok-btn" data-don="verificada">Verificar</button><button type="button" class="bad-btn" data-don="rechazada">Rechazar</button>` : '';
     $('#modalActions').dataset.don = id;
     modal.classList.remove('hidden'); document.body.style.overflow = 'hidden'; $('#modalClose').focus();
-    const dup = d.duplicateReceipt ? '<p class="dup-warn">Atención: este mismo comprobante ya se había enviado antes.</p>' : '';
+    const dup = d.duplicateReceipt ? '<p class="dup-warn">Atención: este comprobante o esta referencia ya se habían enviado antes.</p>' : '';
     try {
       const res = await fetch(`/api/admin/receipt/${encodeURIComponent(id)}`, { credentials: 'same-origin' });
       if (!res.ok) { const j = await res.json().catch(() => null); throw new Error((j && j.error) || 'No se pudo cargar el comprobante.'); }
@@ -202,8 +203,64 @@
     catch (err) { toast(err.message, 'bad'); }
   });
 
+
+  /* ---------- Aviso en vivo ---------- */
+  const lf = $('#cmLiveForm');
+  lf.addEventListener('submit', async e => {
+    e.preventDefault();
+    try { await api('/api/admin/community/live', { method: 'PUT', headers: JSON_H, body: JSON.stringify({ on: lf.on.checked, title: lf.title.value, url: lf.url.value }) });
+      liveDirty = false; flash($('#cmLiveMsg'), lf.on.checked ? 'Listo: la franja «EN VIVO» ya se ve en la portada.' : 'Aviso apagado.', 'success'); }
+    catch (err) { flash($('#cmLiveMsg'), err.message, 'error'); }
+  });
+  lf.addEventListener('input', () => { liveDirty = true; });
+  lf.addEventListener('change', () => { liveDirty = true; });
+
+  /* ---------- Agenda ---------- */
+  const toLocal = iso => new Date(Date.parse(iso) - 5 * 3600e3).toISOString().slice(0, 16); // hora de Colombia (UTC-5)
+  const fromLocal = v => v ? new Date(`${v}:00-05:00`).toISOString() : '';
+  function drawAgenda() {
+    $('#cmAgenda').innerHTML = agenda.length ? agenda.map((a, i) => `<div class="cm-agenda-row" data-i="${i}">
+      <label>Título<input data-a="title" maxlength="80" value="${esc(a.title)}" placeholder="Ej. Directo de la ruleta"></label>
+      <label>Fecha y hora (Colombia)<input data-a="when" type="datetime-local" value="${a.whenIso ? toLocal(a.whenIso) : ''}"></label>
+      <label>Nota (opcional)<input data-a="note" maxlength="120" value="${esc(a.note || '')}" placeholder="Ej. Desde las 8 pm en TikTok"></label>
+      <button type="button" class="bad-btn small-btn" data-agrm="${i}">Quitar</button></div>`).join('') : '<p class="small">No hay directos programados.</p>';
+    $('#cmAddAgenda').disabled = agenda.length >= 8;
+  }
+  function readAgenda() {
+    return [...document.querySelectorAll('.cm-agenda-row')].map((el, i) => ({ id: agenda[i].id, title: el.querySelector('[data-a=title]').value, note: el.querySelector('[data-a=note]').value, whenIso: fromLocal(el.querySelector('[data-a=when]').value) }));
+  }
+  $('#cmAddAgenda').addEventListener('click', () => { agenda = readAgenda(); agenda.push({ title: '', note: '', whenIso: '' }); drawAgenda(); });
+  $('#cmAgenda').addEventListener('click', e => { const b = e.target.closest('[data-agrm]'); if (b) { agenda = readAgenda(); agenda.splice(Number(b.dataset.agrm), 1); drawAgenda(); agendaDirty = true; } });
+  $('#cmAgenda').addEventListener('input', () => { agendaDirty = true; });
+  $('#cmSaveAgenda').addEventListener('click', async () => {
+    try { await api('/api/admin/community/agenda', { method: 'PUT', headers: JSON_H, body: JSON.stringify({ agenda: readAgenda() }) }); agendaDirty = false; flash($('#cmAgendaMsg'), 'Agenda guardada. Ya se ve en la portada.', 'success'); await load(true); }
+    catch (err) { flash($('#cmAgendaMsg'), err.message, 'error'); }
+  });
+
+  /* ---------- Metas logradas ---------- */
+  function renderPast() {
+    const list = view.pastGoals || [];
+    $('#cmPastBlock').classList.toggle('hidden', !list.length);
+    $('#cmPast').innerHTML = list.map(p => `<li><span>${p.imageVersion ? `<img src="/api/community-image/${esc(p.id)}?v=${p.imageVersion}" alt="" width="64" height="40" class="cm-thumb">` : ''}<b>${esc(p.title)}</b> <span class="small">· ${copFmt(p.raisedCop)} · ${esc(when(p.reachedAtIso))}</span></span>
+      <span class="cm-past-actions"><label class="secondary file-btn small-btn">Foto<input type="file" accept="image/jpeg,image/png" hidden data-pastphoto="${esc(p.id)}"></label>${p.imageVersion ? `<button type="button" class="secondary small-btn" data-pastphotodel="${esc(p.id)}">Quitar foto</button>` : ''}<button type="button" class="bad-btn small-btn" data-pastdel="${esc(p.id)}">Quitar</button></span></li>`).join('');
+  }
+  $('#cmPast').addEventListener('change', async e => {
+    const inp = e.target.closest('[data-pastphoto]'); if (!inp) return;
+    const f = inp.files[0]; inp.value = ''; if (!f) return;
+    try { await upload(inp.dataset.pastphoto, await prepImage(f, 'meta-lograda.jpg')); toast('Foto actualizada.', 'ok'); await load(); } catch (err) { toast(err.message, 'bad'); }
+  });
+  $('#cmPast').addEventListener('click', async e => {
+    const d1 = e.target.closest('[data-pastphotodel]'), d2 = e.target.closest('[data-pastdel]');
+    try {
+      if (d1) { await api(`/api/admin/community/image/${encodeURIComponent(d1.dataset.pastphotodel)}`, { method: 'DELETE' }); await load(); }
+      if (d2 && confirm('¿Quitar esta meta de la lista de metas logradas?')) { await api(`/api/admin/community/past/${encodeURIComponent(d2.dataset.pastdel)}`, { method: 'DELETE' }); await load(); }
+    } catch (err) { toast(err.message, 'bad'); }
+  });
+
   function render(forceCreators) {
-    renderGoal(); renderDonations(); renderClips();
+    renderGoal(); renderDonations(); renderClips(); renderPast();
+    if (!liveDirty) { lf.on.checked = Boolean(view.live.on); lf.title.value = view.live.title || ''; lf.url.value = view.live.url || ''; }
+    if (!agendaDirty) { agenda = view.agenda.map(a => ({ ...a })); drawAgenda(); }
     const editing = document.activeElement && document.activeElement.closest && document.activeElement.closest('.cm-creator');
     if (forceCreators || (!editing && !creators.some(c => !savedIds.has(c.id)))) {
       savedIds = new Set(view.creators.map(c => c.id));

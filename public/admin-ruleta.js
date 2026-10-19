@@ -110,7 +110,7 @@
     const x = (view.reservations || []).find(q => q.id === id); if (!x) return;
     lastFocus = trigger || document.activeElement;
     $('#modalTitle').textContent = x.fullName;
-    $('#modalSub').textContent = `Puestos ${x.seats.join(', ')} · ${copFmt(x.amountCop)} · ${x.socialUser || ''} ${x.phone || ''}`;
+    $('#modalSub').textContent = `Puestos ${x.seats.join(', ')} · ${copFmt(x.amountCop)} · ${x.socialUser || ''} ${x.phone || ''}${x.reference ? ` · Ref. ${x.reference}` : ''}`;
     $('#modalBody').innerHTML = '<p class="small">Cargando comprobante…</p>';
     $('#modalActions').innerHTML = resButtons(x);
     modal.classList.remove('hidden'); document.body.style.overflow = 'hidden'; $('#modalClose').focus();

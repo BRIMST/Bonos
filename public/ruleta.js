@@ -271,7 +271,7 @@
       if (f.type === 'application/pdf') { if (f.size > MAX_BYTES) throw new Error('El PDF supera 780 KB. Envía una captura (JPG o PNG).'); }
       else if (f.size > MAX_BYTES) f = await shrinkImage(f);
       const fd = new FormData();
-      for (const k of ['fullName', 'socialUser', 'phone']) fd.append(k, rForm[k].value);
+      for (const k of ['fullName', 'socialUser', 'phone', 'reference']) fd.append(k, rForm[k].value);
       fd.append('quantity', rForm.quantity.value); fd.append('seats', [...picked].join(','));
       fd.append('acceptedTerms', rForm.acceptedTerms.checked ? 'on' : ''); fd.append('receipt', f, f.name);
       const res = await fetch('/api/roulette/reserve', { method: 'POST', body: fd });

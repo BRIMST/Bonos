@@ -40,8 +40,8 @@
     if (toastBusy || !queue.length) return;
     toastBusy = true;
     const d = queue.shift();
-    $('#giftTitle').textContent = `¡Gracias, ${d.name}!`;
-    $('#giftSub').textContent = `Donó ${cop(d.amountCop)} a la meta`;
+    $('#giftTitle').textContent = d.milestone ? d.name : `¡Gracias, ${d.name}!`;
+    $('#giftSub').textContent = d.milestone ? 'Gracias a todos los que donaron 💜' : `Donó ${cop(d.amountCop)} a la meta`;
     gt.classList.add('show');
     burst(90);
     setTimeout(() => { gt.classList.remove('show'); setTimeout(() => { toastBusy = false; nextGift(); }, 400); }, 4200);
@@ -92,6 +92,18 @@
     $('#wall').classList.toggle('hidden', !list.length);
     $('#wallList').innerHTML = list.map(d => `<li><span class="wall-heart" aria-hidden="true">💜</span><b>${esc(d.name)}</b><span>${cop(d.amountCop)}</span></li>`).join('');
   }
+  const MEDAL = ['🥇', '🥈', '🥉', '4.', '5.'];
+  function renderTop(list) {
+    $('#topBox').classList.toggle('hidden', !list.length);
+    $('#topList').innerHTML = list.map((d, i) => `<li><span class="medal" aria-hidden="true">${MEDAL[i]}</span><b>${esc(d.name)}</b><span>${cop(d.amountCop)}</span></li>`).join('');
+  }
+  const monthFmt = new Intl.DateTimeFormat('es-CO', { month: 'long', year: 'numeric', timeZone: 'America/Bogota' });
+  function renderPast(list) {
+    $('#logradas').classList.toggle('hidden', !list.length);
+    $('#pastGrid').innerHTML = list.map(p => `<article class="past">
+      ${p.imageVersion ? `<img src="${imgUrl(p.id, p.imageVersion)}" alt="${esc(p.title)}" loading="lazy" width="480" height="300">` : '<div class="past-ph" aria-hidden="true">🎉</div>'}
+      <div><b>${esc(p.title)}</b><span>${cop(p.raisedCop)} · ${p.donationsCount} ${p.donationsCount === 1 ? 'donación' : 'donaciones'}</span><em>✔ Lograda en ${esc(monthFmt.format(new Date(p.reachedAtIso)))}</em></div></article>`).join('');
+  }
   function renderClips(list, creators) {
     $('#clips').classList.toggle('hidden', !list.length); $('#navClips').classList.toggle('hidden', !list.length);
     const used = creators.filter(c => list.some(k => k.creatorId === c.id));
@@ -107,15 +119,37 @@
           <span class="clip-badge">${esc(k.platform)}</span><span class="clip-btn" aria-hidden="true">▶</span>
         </button>
         <h3>${esc(k.title)}</h3>${name(k.creatorId) ? `<p class="small">${esc(name(k.creatorId))}</p>` : ''}
+        ${k.url ? `<button type="button" class="clip-share" data-share="${esc(k.url)}" data-title="${esc(k.title)}">Compartir</button>` : ''}
       </article>`).join('');
   }
   // Solo se vuelve a dibujar lo que cambió, para no reiniciar un clip que se está viendo.
   const sigs = {};
   function once(key, value, fn) { const s = JSON.stringify(value); if (sigs[key] !== s) { sigs[key] = s; fn(); } }
+  function renderLive(l) {
+    const b = $('#liveBanner'); b.classList.toggle('hidden', !l);
+    if (l) { b.href = l.url; $('#liveTitle').textContent = l.title ? ` · ${l.title}` : ''; }
+  }
+  const dayFmt = new Intl.DateTimeFormat('es-CO', { weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit', timeZone: 'America/Bogota' });
+  let srvOff = 0;
+  function eta(iso) {
+    const ms = Date.parse(iso) - (Date.now() + srvOff);
+    if (ms <= 0) return 'Empezando ahora';
+    const m = Math.floor(ms / 60000), d = Math.floor(m / 1440), h = Math.floor((m % 1440) / 60);
+    return d ? `En ${d} ${d === 1 ? 'día' : 'días'}${h ? ` y ${h} h` : ''}` : h ? `En ${h} h ${m % 60} min` : `En ${m} min`;
+  }
+  function renderAgenda(list) {
+    $('#agenda').classList.toggle('hidden', !list.length);
+    $('#agendaList').innerHTML = list.map(a => `<li><div><b>${esc(a.title)}</b><span>${esc(dayFmt.format(new Date(a.whenIso)))}${a.note ? ` · ${esc(a.note)}` : ''}</span></div><em data-eta="${esc(a.whenIso)}">${esc(eta(a.whenIso))}</em></li>`).join('');
+  }
+  setInterval(() => document.querySelectorAll('[data-eta]').forEach(e => { e.textContent = eta(e.dataset.eta); }), 30000);
   function render() {
+    renderLive(data.live);
+    once('ag', data.agenda || [], () => renderAgenda(data.agenda || []));
     once('cr', data.creators, () => renderCreators(data.creators));
     renderGoal(data.goal);
     once('wall', data.recent || [], () => renderWall(data.recent || []));
+    once('top', data.top || [], () => renderTop(data.top || []));
+    once('past', data.pastGoals || [], () => renderPast(data.pastGoals || []));
     once('clips', [data.clips, data.creators.map(c => [c.id, c.name])], () => renderClips(data.clips, data.creators));
   }
 
@@ -131,15 +165,35 @@
         fresh.forEach(d => queue.push(d));
       }
       const prevData = data; data = next;
+      if (next.serverNowIso) srvOff = Date.parse(next.serverNowIso) - Date.now();
       // Si el visitante está escribiendo un clip o el formulario, solo se refrescan las partes que no pisan nada.
       render();
       if (queue.length) nextGift();
       if (prevData && !prevData.goal?.reached && next.goal?.reached) burst(260);
+      else if (prevData && prevData.goal && next.goal && prevData.goal.id === next.goal.id) {
+        const pct = g => Math.floor(g.raisedCop / g.targetCop * 100);
+        const hit = [75, 50, 25].find(m => pct(prevData.goal) < m && pct(next.goal) >= m);
+        if (hit && !next.goal.reached) { burst(160); flashMilestone(hit); }
+      }
     } catch { /* se reintenta */ }
   }
 
+  function flashMilestone(p) {
+    queue.push({ name: `¡Llegamos al ${p}%!`, amountCop: 0, milestone: true }); nextGift();
+  }
+  /* ---------- Compartir ---------- */
+  async function share(title, text, url) {
+    try { if (navigator.share) return await navigator.share({ title, text, url }); } catch (e) { if (e && e.name === 'AbortError') return; }
+    window.open(`https://wa.me/?text=${encodeURIComponent(`${text} ${url}`)}`, '_blank', 'noopener');
+  }
+  $('#shareGoal').addEventListener('click', () => {
+    const g = data && data.goal; if (!g) return;
+    share('Juntos Sumamos', `Ayúdanos a lograr la meta: ${g.title}. Vamos en ${Math.floor(g.raisedCop / g.targetCop * 100)}%.`, `${location.origin}/#donar`);
+  });
   /* ---------- Clips: el reproductor solo se carga al tocarlo ---------- */
   $('#clipGrid').addEventListener('click', e => {
+    const sh = e.target.closest('.clip-share');
+    if (sh) return share(sh.dataset.title, `Mira este clip: ${sh.dataset.title}`, sh.dataset.share);
     const b = e.target.closest('.clip-play'); if (!b) return;
     const f = document.createElement('iframe');
     f.src = b.dataset.embed; f.title = b.dataset.title; f.loading = 'lazy'; f.allowFullscreen = true;
@@ -206,7 +260,7 @@
     if (!receiptFile) return say('Adjunta el comprobante de pago.', 'error');
     if (!form.acceptedTerms.checked) return say('Debes confirmar que tu donación es voluntaria.', 'error');
     const fd = new FormData();
-    fd.append('amountCop', amt); fd.append('alias', form.alias.value); fd.append('acceptedTerms', 'on'); fd.append('receipt', receiptFile, receiptFile.name);
+    fd.append('amountCop', amt); fd.append('alias', form.alias.value); fd.append('phone', form.phone.value); fd.append('reference', form.reference.value); fd.append('acceptedTerms', 'on'); fd.append('receipt', receiptFile, receiptFile.name);
     $('#donateBtn').disabled = true; say('Enviando…');
     try {
       const res = await fetch('/api/donate', { method: 'POST', body: fd });
@@ -222,6 +276,12 @@
   function closeSuccess() { $('#success').classList.add('hidden'); document.body.style.overflow = ''; }
   $('#closeSuccess').addEventListener('click', closeSuccess);
   document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSuccess(); });
+
+  /* ---------- Instalar como app ---------- */
+  let installEvt = null;
+  addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvt = e; $('#installBtn').classList.remove('hidden'); });
+  $('#installBtn').addEventListener('click', async () => { if (!installEvt) return; installEvt.prompt(); await installEvt.userChoice.catch(() => {}); installEvt = null; $('#installBtn').classList.add('hidden'); });
+  addEventListener('appinstalled', () => $('#installBtn').classList.add('hidden'));
 
   load();
   setInterval(() => { if (!document.hidden) load(); }, 20000);

@@ -771,3 +771,50 @@ body.live .lookup-link a:focus-visible { outline-color: #fff; }
 .cm-clips li > .small-btn { flex-shrink: 0; white-space: nowrap; }
 .rl-suggest { margin: -4px 0 0; padding: 8px 12px; background: var(--lav); border-radius: 12px; }
 .rl-suggest b { color: var(--violet-deep); }
+
+/* ---------- Portada: en vivo, agenda, hitos, compartir ---------- */
+.live-banner { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px 12px; padding: 12px 16px; background: #d92d34; color: #fff; text-decoration: none; font-size: 15px; text-align: center; }
+.live-banner u { text-underline-offset: 3px; font-weight: 800; }
+.live-banner:hover { background: #c0232a; }
+.live-dot { width: 12px; height: 12px; border-radius: 50%; background: #fff; animation: pulse 1.2s ease-in-out infinite; }
+@keyframes pulse { 50% { transform: scale(1.5); opacity: .45; } }
+.agenda { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 10px; }
+.agenda li { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px 14px; background: #fff; border: 1px solid var(--line); border-left: 6px solid var(--gold); border-radius: 16px; padding: 14px 16px; }
+.agenda b { display: block; font-size: 17px; }
+.agenda span { color: var(--muted); font-size: 14px; text-transform: capitalize; }
+.agenda em { font-style: normal; font-weight: 800; color: var(--violet-deep); background: var(--lav); border-radius: 99px; padding: 6px 12px; font-size: 14px; }
+.goal-mark { position: absolute; top: 0; bottom: 0; width: 2px; background: #1a144633; z-index: 1; }
+.goal-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.clip-share { margin: 0 14px 14px; font: inherit; font-size: 13px; font-weight: 800; color: var(--violet-deep); background: var(--lav); border: 0; border-radius: 99px; padding: 8px 14px; min-height: 36px; cursor: pointer; }
+.clip-share:hover { background: #e3deff; }
+@media (prefers-reduced-motion: reduce) { .live-dot { animation: none; } }
+.cm-live { grid-template-columns: 1fr; }
+@media (min-width: 720px) { .cm-live { grid-template-columns: 1fr 2fr auto auto; } }
+.cm-agenda { display: grid; gap: 10px; }
+.cm-agenda-row { display: grid; gap: 8px; padding: 12px; border: 2px dashed var(--line); border-radius: 14px; }
+@media (min-width: 720px) { .cm-agenda-row { grid-template-columns: 2fr 1.4fr 2fr auto; align-items: end; } }
+
+/* ---------- Top del mes, metas logradas, instalar ---------- */
+.wall-top ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.wall-top li { display: flex; align-items: center; gap: 12px; background: var(--lav); border-radius: 14px; padding: 10px 14px; }
+.wall-top li b { flex: 1; overflow-wrap: anywhere; }
+.wall-top li span:last-child { font-weight: 800; color: var(--violet-deep); }
+.medal { width: 28px; text-align: center; font-size: 22px; font-weight: 800; }
+.past-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; margin-top: 10px; }
+.past { background: #fff; border: 1px solid var(--line); border-radius: 20px; overflow: hidden; box-shadow: 0 8px 22px #1a144612; }
+.past img, .past-ph { display: block; width: 100%; aspect-ratio: 16 / 10; object-fit: cover; background: var(--lav); }
+.past-ph { display: grid; place-items: center; font-size: 46px; }
+.past div:last-child { display: grid; gap: 2px; padding: 12px 14px 14px; }
+.past b { font-size: 17px; } .past span { color: var(--muted); font-size: 14px; } .past em { font-style: normal; font-weight: 800; color: #0b7f56; font-size: 13px; }
+.install-btn { font: inherit; font-size: 14px; font-weight: 700; border: 0; cursor: pointer; border-radius: 99px; padding: 8px 14px; background: var(--gold); color: var(--ink); }
+
+/* ---------- Rol verificador y extras del admin ---------- */
+.role-chip { margin-left: 8px; font-size: 12px; font-weight: 800; background: var(--gold); color: var(--ink); border-radius: 99px; padding: 3px 10px; vertical-align: middle; }
+.role-verifier #tab-ganador, .role-verifier #tab-premio, .role-verifier #tab-perfil, .role-verifier #tab-ajustes, .role-verifier #tab-reportes,
+.role-verifier #eventPanel .event-actions, .role-verifier #exportMenu, .role-verifier #cmManualForm,
+.role-verifier #view-ruleta > :not(#rlReservations), .role-verifier #view-comunidad > :not(#cmDonBlock) { display: none !important; }
+.cm-thumb { width: 64px; height: 40px; object-fit: cover; border-radius: 8px; vertical-align: middle; margin-right: 8px; }
+.cm-past-actions { display: flex; flex-wrap: wrap; gap: 6px; flex-shrink: 0; }
+.top .wrap { flex-wrap: wrap; }
+.role-verifier #cmDonBlock { border-top: 0; padding-top: 0; }
+@media (max-width: 480px) { .role-chip { display: table; margin: 4px 0 0; } }

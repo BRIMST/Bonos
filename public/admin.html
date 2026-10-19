@@ -8,7 +8,7 @@
 </head>
 <body class="admin">
 <header class="top"><div class="wrap">
-  <span class="brand">Juntos <b>Sumamos</b> · Admin</span>
+  <span class="brand">Juntos <b>Sumamos</b> · Admin <span class="role-chip hidden" id="roleChip">Verificador</span></span>
   <span class="top-actions"><a href="/">Ver página pública</a><button id="logout" class="top-btn hidden" type="button">Cerrar sesión</button></span>
 </div></header>
 
@@ -184,6 +184,29 @@
       <p class="small cm-top">Lo que configures aquí aparece en la <a href="/" target="_blank" rel="noopener">página principal ↗</a>.</p>
 
       <div class="cm-block">
+        <h2>Aviso «en vivo»</h2>
+        <p class="small">Activa esto cuando empieces a transmitir: aparece una franja roja arriba de la portada con el enlace a tu directo. Apágalo al terminar.</p>
+        <form id="cmLiveForm" class="cm-inline cm-live">
+          <label>Título (opcional)<input name="title" maxlength="80" placeholder="Ej. Ruleta de Seguidores"></label>
+          <label>Enlace de la transmisión<input name="url" type="url" maxlength="300" placeholder="https://www.tiktok.com/@tu_usuario/live"></label>
+          <label class="check-row"><input type="checkbox" name="on"><span>Estoy en vivo</span></label>
+          <button class="primary">Guardar</button>
+        </form>
+        <p id="cmLiveMsg" class="notice" role="status"></p>
+      </div>
+
+      <div class="cm-block">
+        <h2>Próximos directos</h2>
+        <p class="small">Aparecen en la portada con cuenta regresiva (hora de Colombia). Los que ya pasaron desaparecen solos 2 horas después. Máximo 8.</p>
+        <div id="cmAgenda" class="cm-agenda"></div>
+        <div class="control-group">
+          <button type="button" class="secondary" id="cmAddAgenda">+ Agregar directo</button>
+          <button type="button" class="primary" id="cmSaveAgenda">Guardar agenda</button>
+        </div>
+        <p id="cmAgendaMsg" class="notice" role="status"></p>
+      </div>
+
+      <div class="cm-block">
         <h2>Meta de donaciones</h2>
         <div id="cmGoalStat" class="cm-goalstat hidden">
           <div class="rl-bar"><i id="cmFill"></i></div>
@@ -212,7 +235,7 @@
         </div>
       </div>
 
-      <div class="cm-block">
+      <div class="cm-block" id="cmDonBlock">
         <h2>Donaciones <span class="small" id="cmDonSummary"></span></h2>
         <div class="control-group cm-filter" id="cmDonFilter" role="group" aria-label="Filtrar donaciones">
           <button type="button" class="secondary on" data-f="pendiente">Por revisar</button><button type="button" class="secondary" data-f="verificada">Verificadas</button><button type="button" class="secondary" data-f="rechazada">Rechazadas</button>
@@ -230,6 +253,12 @@
             <button class="secondary">Agregar y verificar</button>
           </div>
         </form>
+      </div>
+
+      <div class="cm-block" id="cmPastBlock">
+        <h2>Metas logradas</h2>
+        <p class="small">Cuando una meta se logra y empiezas otra (o la quitas), pasa aquí y se muestra en la portada. Sube una foto del premio ya comprado.</p>
+        <ul id="cmPast" class="cm-clips"></ul>
       </div>
 
       <div class="cm-block">
@@ -347,6 +376,14 @@
           <label>Llave o dato de pago<input name="brebValue" maxlength="120" placeholder="@mi-llave" required></label>
           <button class="primary">Guardar datos de pago</button>
           <p id="brebMessage" class="notice" role="status"></p>
+        </form>
+        <form id="verifierForm">
+          <h2>Acceso de verificador</h2>
+          <p class="small">Crea una contraseña para una persona de confianza que solo pueda revisar y verificar pagos (Quinta, Ruleta y donaciones). No ve contraseñas, reportes, copias de respaldo ni puede cambiar nada del sitio. Entra por la misma página de administración con su contraseña.</p>
+          <p class="small"><b id="verifierState">Sin acceso de verificador.</b></p>
+          <label>Contraseña del verificador (mínimo 8 caracteres)<input name="password" type="password" autocomplete="new-password" minlength="8" maxlength="200"></label>
+          <div class="control-group"><button class="primary">Guardar contraseña</button><button type="button" class="bad-btn hidden" id="verifierDel">Quitar acceso</button></div>
+          <p id="verifierMsg" class="notice" role="status"></p>
         </form>
         <form id="passwordForm">
           <h2>Cambiar contraseña</h2>
