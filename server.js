@@ -197,13 +197,26 @@ async function verifyPassword(password, settings) {
   }
   return crypto.timingSafeEqual(sha256(password), sha256(process.env.ADMIN_PASSWORD));
 }
+// Rol de la sesión: 'admin' (todo) o 'verifier' (solo revisar pagos). Al cambiar una contraseña, sus sesiones anteriores dejan de ser válidas.
+async function staffRole(req) {
+  if (!req.session) return null;
+  const settings = await getSettings();
+  if (req.session.isAdmin && (req.session.pwv || 0) === (settings.passwordVersion || 0)) return 'admin';
+  if (req.session.isVerifier && settings.verifierHash && (req.session.vpv || 0) === (settings.verifierVersion || 0)) return 'verifier';
+  return null;
+}
+async function requireStaff(req, res, next) {
+  try {
+    const role = await staffRole(req);
+    if (role) { req.role = role; return next(); }
+    return res.status(401).json({ error: 'Debes iniciar sesión.' });
+  } catch (err) { return next(err); }
+}
 async function requireAdmin(req, res, next) {
   try {
-    if (req.session && req.session.isAdmin) {
-      // Al cambiar la contraseña, las sesiones anteriores dejan de ser válidas.
-      const settings = await getSettings();
-      if ((req.session.pwv || 0) === (settings.passwordVersion || 0)) return next();
-    }
+    const role = await staffRole(req);
+    if (role === 'admin') { req.role = role; return next(); }
+    if (role === 'verifier') return res.status(403).json({ error: 'Esta acción es solo para el administrador.' });
     return res.status(401).json({ error: 'Debes iniciar sesión como administrador.' });
   } catch (err) { return next(err); }
 }
@@ -247,7 +260,7 @@ function publicRecord(d) {
     socialUser: d.socialUser, phone: d.phone, number: d.number,
     amountCop: d.amountCop, paymentStatus: d.paymentStatus,
     participationStatus: d.participationStatus || 'pendiente_verificacion',
-    duplicateReceipt: Boolean(d.duplicateReceipt), receiptPurged: Boolean(d.receiptPurgedAt)
+    duplicateReceipt: Boolean(d.duplicateReceipt), receiptPurged: Boolean(d.receiptPurgedAt), reference: d.reference || ''
   };
 }
 
@@ -275,10 +288,12 @@ app.post('/api/register', registerLimiter, upload.single('receipt'), async (req,
     const phone = cleanString(req.body.phone, 10);
     const number = cleanString(req.body.number, 5);
     const acceptedTerms = req.body.acceptedTerms === 'on' || req.body.acceptedTerms === 'true';
+    const reference = cleanRef(req.body.reference);
 
     if (fullName.length < 3) return res.status(400).json({ error: 'Escribe tu nombre completo.' });
     if (socialUser.length < 2) return res.status(400).json({ error: 'Escribe tu usuario de red social.' });
     if (!validPhone(phone)) return res.status(400).json({ error: 'El celular debe tener exactamente 10 dígitos.' });
+    if (reference && reference.length < 4) return res.status(400).json({ error: REF_ERR });
     if (!validNumber(number)) return res.status(400).json({ error: 'El número debe tener exactamente 5 cifras, incluidos los ceros iniciales.' });
     if (!acceptedTerms) return res.status(400).json({ error: 'Debes aceptar los términos.' });
     if (!req.file) return res.status(400).json({ error: 'Debes adjuntar el comprobante de pago.' });
@@ -300,7 +315,7 @@ app.post('/api/register', registerLimiter, upload.single('receipt'), async (req,
     }
     const id = crypto.randomUUID();
     const receiptHash = crypto.createHash('sha256').update(req.file.buffer).digest('hex');
-    const seenBefore = await receiptSeenBefore(receiptHash);
+    const seenBefore = await receiptSeenBefore(receiptHash, reference);
 
     const record = {
       id,
@@ -318,6 +333,7 @@ app.post('/api/register', registerLimiter, upload.single('receipt'), async (req,
       amountCop: PRICE_COP,
       hasReceipt: true,
       receiptHash,
+      reference,
       duplicateReceipt: seenBefore,
       receiptMimeType: req.file.mimetype,
       paymentStatus: 'pendiente_revision',
@@ -346,31 +362,41 @@ app.post('/api/admin/login', loginLimiter, async (req, res, next) => {
   try {
     const password = typeof req.body.password === 'string' ? req.body.password : '';
     const settings = await getSettings();
-    if (!(await verifyPassword(password, settings))) return res.status(401).json({ error: 'Contraseña incorrecta.' });
-    req.session.isAdmin = true;
-    req.session.pwv = settings.passwordVersion || 0;
-    res.json({ ok: true });
+    if (await verifyPassword(password, settings)) {
+      req.session = { isAdmin: true, pwv: settings.passwordVersion || 0 };
+      return res.json({ ok: true, role: 'admin' });
+    }
+    if (settings.verifierHash && settings.verifierSalt) {
+      const a = Buffer.from(hashPassword(password, settings.verifierSalt).hash, 'hex');
+      if (crypto.timingSafeEqual(a, Buffer.from(settings.verifierHash, 'hex'))) {
+        req.session = { isVerifier: true, vpv: settings.verifierVersion || 0 };
+        return res.json({ ok: true, role: 'verifier' });
+      }
+    }
+    return res.status(401).json({ error: 'Contraseña incorrecta.' });
   } catch (err) { next(err); }
 });
-app.post('/api/admin/logout', requireAdmin, (req, res) => {
+app.post('/api/admin/logout', requireStaff, (req, res) => {
   req.session = null;
   res.json({ ok: true });
 });
 app.get('/api/admin/me', async (req, res, next) => {
   try {
     const settings = await getSettings();
-    const ok = Boolean(req.session && req.session.isAdmin && (req.session.pwv || 0) === (settings.passwordVersion || 0));
-    res.json({ authenticated: ok });
+    const role = await staffRole(req);
+    res.json({ authenticated: Boolean(role), role });
   } catch (err) { next(err); }
 });
 
-app.get('/api/admin/settings', requireAdmin, async (_req, res, next) => {
+app.get('/api/admin/settings', requireStaff, async (req, res, next) => {
   try {
     const settings = await getSettings();
     res.json({
       brebLabel: settings.brebLabel || process.env.BREB_LABEL || 'Llave Bre-B',
       brebValue: settings.brebValue || process.env.BREB_VALUE || '',
       event: eventState(settings),
+      role: req.role,
+      hasVerifier: Boolean(settings.verifierHash),
       winner: publicWinner(settings),
       profile: publicProfile(settings) || { name: '', bio: '', links: [] },
       prize: publicPrize(settings) || { name: '', description: '', mode: 'premio', cashCop: 0, imageVersion: null }
@@ -511,6 +537,24 @@ app.get('/api/admin/qr.:fmt(png|svg)', requireAdmin, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+app.post('/api/admin/verifier-password', requireAdmin, async (req, res, next) => {
+  try {
+    const pw = typeof req.body.password === 'string' ? req.body.password : '';
+    const settings = await getSettings();
+    if (pw.length < 8 || pw.length > 200) return res.status(400).json({ error: 'La contraseña del verificador debe tener al menos 8 caracteres.' });
+    if (await verifyPassword(pw, settings)) return res.status(400).json({ error: 'Debe ser distinta a tu contraseña de administrador.' });
+    const { salt, hash } = hashPassword(pw);
+    await settingsRef.set({ verifierSalt: salt, verifierHash: hash, verifierVersion: (settings.verifierVersion || 0) + 1 }, { merge: true });
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+app.delete('/api/admin/verifier-password', requireAdmin, async (_req, res, next) => {
+  try {
+    const settings = await getSettings();
+    await settingsRef.set({ verifierSalt: null, verifierHash: null, verifierVersion: (settings.verifierVersion || 0) + 1 }, { merge: true });
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+});
 app.post('/api/admin/password', requireAdmin, async (req, res, next) => {
   try {
     const current = typeof req.body.currentPassword === 'string' ? req.body.currentPassword : '';
@@ -558,7 +602,7 @@ app.post('/api/admin/event/end', requireAdmin, async (_req, res, next) => {
   } catch (err) { next(err); }
 });
 
-app.get('/api/admin/events', requireAdmin, async (_req, res, next) => {
+app.get('/api/admin/events', requireStaff, async (_req, res, next) => {
   try {
     const snap = await db.collection('events').limit(200).get();
     const events = snap.docs.map(d => d.data())
@@ -568,7 +612,7 @@ app.get('/api/admin/events', requireAdmin, async (_req, res, next) => {
   } catch (err) { next(err); }
 });
 
-app.get('/api/admin/registrations', requireAdmin, async (req, res, next) => {
+app.get('/api/admin/registrations', requireStaff, async (req, res, next) => {
   try {
     const status = currentStatus();
     const settings = await getSettings();
@@ -593,7 +637,7 @@ app.get('/api/admin/registrations', requireAdmin, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-app.get('/api/admin/receipt/:id', requireAdmin, async (req, res, next) => {
+app.get('/api/admin/receipt/:id', requireStaff, async (req, res, next) => {
   try {
     if (!/^[0-9a-f-]{36}$/.test(req.params.id)) return res.status(404).json({ error: 'Comprobante no encontrado.' });
     const snap = await db.collection('receipts').doc(req.params.id).get();
@@ -606,7 +650,7 @@ app.get('/api/admin/receipt/:id', requireAdmin, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-app.patch('/api/admin/registrations/:id/payment', requireAdmin, async (req, res, next) => {
+app.patch('/api/admin/registrations/:id/payment', requireStaff, async (req, res, next) => {
   try {
     const paymentStatus = req.body.paymentStatus;
     if (!['pendiente_revision', 'verificado', 'rechazado'].includes(paymentStatus)) {
@@ -748,14 +792,18 @@ async function reservationsOf(rouletteId) {
 }
 async function pendingReservations(rouletteId) { return (await reservationsOf(rouletteId)).filter(x => x.status === 'pendiente'); }
 // ¿Ya se usó antes este comprobante (en la Quinta o en la Ruleta)? Solo se compara la huella, no la imagen.
-async function receiptSeenBefore(hash) {
-  const a = await db.collection('registrations').where('receiptHash', '==', hash).limit(1).get();
-  if (!a.empty) return true;
-  const b = await db.collection('rouletteReservations').where('receiptHash', '==', hash).limit(1).get();
-  if (!b.empty) return true;
-  const c = await db.collection('donations').where('receiptHash', '==', hash).limit(1).get();
-  return !c.empty;
+// Un comprobante (o una referencia de transferencia) ya usado antes en cualquier modalidad se marca como repetido.
+async function receiptSeenBefore(hash, reference) {
+  for (const col of ['registrations', 'rouletteReservations', 'donations']) {
+    let q = await db.collection(col).where('receiptHash', '==', hash).limit(1).get();
+    if (!q.empty) return true;
+    if (reference) { q = await db.collection(col).where('reference', '==', reference).limit(1).get(); if (!q.empty) return true; }
+  }
+  return false;
 }
+// Referencia de la transferencia (opcional): letras, números y guiones; mínimo 4 caracteres.
+function cleanRef(v) { return cleanString(v, 40).replace(/[^A-Za-z0-9]/g, '').toUpperCase(); }
+const REF_ERR = 'La referencia de la transferencia debe tener al menos 4 caracteres (o déjala vacía).';
 async function rouletteSeats(rouletteId) {
   const snap = await db.collection('rouletteSeats').where('rouletteId', '==', rouletteId).limit(5000).get();
   return snap.docs.map(d => d.data()).sort((a, b) => a.seat - b.seat);
@@ -818,7 +866,7 @@ async function adminRouletteView(r) {
   const buyers = groupBuyers(seats);
   const winnerSeat = r.status === 'sorteada' ? seats.find(s => s.seat === r.winnerSeat) : null;
   const pendingRes = (await pendingReservations(r.id)).map(x => ({ id: x.id, fullName: x.fullName, socialUser: x.socialUser, phone: x.phone,
-    seats: x.seats, amountCop: x.amountCop, createdAtIso: x.createdAtIso, duplicateReceipt: Boolean(x.duplicateReceipt), receiptPurged: Boolean(x.receiptPurgedAt) }));
+    seats: x.seats, amountCop: x.amountCop, createdAtIso: x.createdAtIso, duplicateReceipt: Boolean(x.duplicateReceipt), receiptPurged: Boolean(x.receiptPurgedAt), reference: x.reference || '' }));
   const pending = seats.filter(s => s.refundStatus === 'por_devolver');
   const done = seats.filter(s => s.refundStatus === 'devuelto');
   return {
@@ -912,7 +960,7 @@ app.get('/api/roulette-image', async (_req, res, next) => {
   } catch (err) { next(err); }
 });
 
-app.get('/api/admin/roulette', requireAdmin, async (_req, res, next) => {
+app.get('/api/admin/roulette', requireStaff, async (_req, res, next) => {
   try { res.json(await adminRouletteView(await getRoulette())); } catch (err) { next(err); }
 });
 
@@ -1089,6 +1137,8 @@ app.post('/api/roulette/reserve', registerLimiter, upload.single('receipt'), asy
     const socialUser = cleanString(req.body.socialUser, 80);
     const phone = cleanString(req.body.phone, 10);
     const acceptedTerms = req.body.acceptedTerms === 'on' || req.body.acceptedTerms === 'true';
+    const reference = cleanRef(req.body.reference);
+    if (reference && reference.length < 4) return res.status(400).json({ error: REF_ERR });
     const wanted = [...new Set(String(req.body.seats || '').split(',').map(x => Number(x.trim())).filter(n => Number.isInteger(n) && n >= 1))];
     const quantity = wanted.length || Math.round(Number(req.body.quantity) || 1);
     if (fullName.length < 3) return res.status(400).json({ error: 'Escribe tu nombre completo.' });
@@ -1104,7 +1154,7 @@ app.post('/api/roulette/reserve', registerLimiter, upload.single('receipt'), asy
 
     const id = crypto.randomUUID();
     const receiptHash = crypto.createHash('sha256').update(req.file.buffer).digest('hex');
-    const duplicateReceipt = await receiptSeenBefore(receiptHash);
+    const duplicateReceipt = await receiptSeenBefore(receiptHash, reference);
     await db.collection('receipts').doc(id).set({
       id, mimeType: req.file.mimetype, size: req.file.buffer.length, data: req.file.buffer,
       createdDateBogota: dateInBogota(), rouletteId: pre.id, kind: 'ruleta'
@@ -1125,7 +1175,7 @@ app.post('/api/roulette/reserve', registerLimiter, upload.single('receipt'), asy
         seats.sort((x, y) => x - y);
         const d = {
           id, rouletteId: r.id, fullName, socialUser, phone, seats, quantity: seats.length, amountCop: seats.length * r.priceCop,
-          receiptHash, duplicateReceipt, receiptMimeType: req.file.mimetype, status: 'pendiente',
+          receiptHash, reference, duplicateReceipt, receiptMimeType: req.file.mimetype, status: 'pendiente',
           createdAtIso: new Date().toISOString(), termsAccepted: true
         };
         io.set(db.collection('rouletteReservations').doc(id), d);
@@ -1172,8 +1222,8 @@ async function reviewReservation(req, res, next, approve) {
     res.json(await adminRouletteView(await getRoulette()));
   } catch (err) { if (err.http) return res.status(err.http).json({ error: err.msg }); next(err); }
 }
-app.post('/api/admin/roulette/reservations/:id/approve', requireAdmin, (req, res, next) => reviewReservation(req, res, next, true));
-app.post('/api/admin/roulette/reservations/:id/reject', requireAdmin, (req, res, next) => reviewReservation(req, res, next, false));
+app.post('/api/admin/roulette/reservations/:id/approve', requireStaff, (req, res, next) => reviewReservation(req, res, next, true));
+app.post('/api/admin/roulette/reservations/:id/reject', requireStaff, (req, res, next) => reviewReservation(req, res, next, false));
 
 // ---- "Consulta tu participación" (celular + tu número de 5 cifras o tu puesto) ----
 const lookupLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 30, standardHeaders: true, legacyHeaders: false,
@@ -1252,17 +1302,18 @@ app.post('/api/admin/person/erase', requireAdmin, async (req, res, next) => {
     if (!validPhone(phone)) return res.status(400).json({ error: 'Escribe el celular de 10 dígitos.' });
     const cleared = { fullName: '(eliminado)', socialUser: '', phone: '', erasedAt: new Date().toISOString() };
     let records = 0, receipts = 0;
-    for (const name of ['registrations', 'rouletteReservations', 'rouletteSeats', 'rouletteWinners']) {
+    for (const name of ['registrations', 'rouletteReservations', 'rouletteSeats', 'rouletteWinners', 'donations']) {
       const snap = await db.collection(name).where('phone', '==', phone).limit(1000).get();
       for (const d of snap.docs.map(x => x.data())) {
-        await db.collection(name).doc(d.id).set(cleared, { merge: true });
+        await db.collection(name).doc(d.id).set(name === 'donations' ? { alias: '(eliminado)', phone: '', erasedAt: cleared.erasedAt } : cleared, { merge: true });
         records++;
-        if (name === 'registrations' || name === 'rouletteReservations') {
+        if (name === 'registrations' || name === 'rouletteReservations' || name === 'donations') {
           await db.collection('receipts').doc(d.id).delete(); receipts++;
           await db.collection(name).doc(d.id).set({ receiptPurgedAt: cleared.erasedAt }, { merge: true });
         }
       }
     }
+    await recomputeGoal();
     res.json({ ok: true, records, receipts });
   } catch (err) { next(err); }
 });
@@ -1348,26 +1399,52 @@ function parseClip(raw) {
     return { platform: 'YouTube', embed: `https://www.youtube-nocookie.com/embed/${id}`, thumb: `https://i.ytimg.com/vi/${id}/hqdefault.jpg`, vertical };
   }
 }
+// Aviso "en vivo" y agenda de próximos directos.
+function publicLive(l) { return l && l.on && l.url ? { title: l.title || '', url: l.url } : null; }
+function upcomingAgenda(list) {
+  const min = Date.now() - 2 * 3600e3; // un directo sigue visible 2 horas después de empezar
+  return (list || []).filter(a => Date.parse(a.whenIso) >= min).sort((a, b) => a.whenIso.localeCompare(b.whenIso))
+    .map(a => ({ id: a.id, title: a.title, note: a.note || '', whenIso: a.whenIso }));
+}
 function publicCreator(c) { return { id: c.id, name: c.name, role: c.role || '', bio: c.bio || '', links: c.links || [], imageVersion: c.imageVersion || null }; }
 function publicGoal(g) {
   if (!g || !g.id) return null;
   return { id: g.id, title: g.title, description: g.description || '', targetCop: g.targetCop, raisedCop: g.raisedCop || 0,
     donationsCount: g.donationsCount || 0, imageVersion: g.imageVersion || null, reached: (g.raisedCop || 0) >= g.targetCop };
 }
-// Recalcula lo recaudado de la meta actual a partir de las donaciones verificadas.
+// Recalcula lo recaudado de la meta actual y el ranking del mes a partir de las donaciones verificadas.
 async function recomputeGoal() {
   const c = await getCommunity();
-  if (!c.goal || !c.goal.id) { await communityRef.set({ ...c, recent: [] }); return; }
-  const snap = await db.collection('donations').where('goalId', '==', c.goal.id).limit(5000).get();
-  const ok = snap.docs.map(d => d.data()).filter(d => d.status === 'verificada')
-    .sort((a, b) => String(b.verifiedAtIso).localeCompare(String(a.verifiedAtIso)));
-  const raised = ok.reduce((t, d) => t + d.amountCop, 0);
-  c.goal.raisedCop = raised; c.goal.donationsCount = ok.length;
-  if (raised >= c.goal.targetCop && !c.goal.reachedAtIso) c.goal.reachedAtIso = new Date().toISOString();
-  if (raised < c.goal.targetCop) c.goal.reachedAtIso = null;
-  c.recent = ok.slice(0, 8).map(d => ({ id: d.id, name: d.alias, amountCop: d.amountCop, atIso: d.verifiedAtIso }));
+  const all = (await db.collection('donations').limit(5000).get()).docs.map(d => d.data()).filter(d => d.status === 'verificada');
+  if (c.goal && c.goal.id) {
+    const ok = all.filter(d => d.goalId === c.goal.id).sort((a, b) => String(b.verifiedAtIso).localeCompare(String(a.verifiedAtIso)));
+    const raised = ok.reduce((t, d) => t + d.amountCop, 0);
+    c.goal.raisedCop = raised; c.goal.donationsCount = ok.length;
+    if (raised >= c.goal.targetCop && !c.goal.reachedAtIso) c.goal.reachedAtIso = new Date().toISOString();
+    if (raised < c.goal.targetCop) c.goal.reachedAtIso = null;
+    c.recent = ok.slice(0, 8).map(d => ({ id: d.id, name: d.alias, amountCop: d.amountCop, atIso: d.verifiedAtIso }));
+  } else c.recent = [];
+  // Quienes más aportaron este mes (se agrupa por el nombre que cada donante eligió mostrar).
+  const month = dateInBogota().slice(0, 7), tot = new Map();
+  for (const d of all) {
+    if (dateInBogota(new Date(d.verifiedAtIso || d.createdAtIso)).slice(0, 7) !== month) continue;
+    const n = d.alias; if (!n || n === 'Un seguidor' || n === '(eliminado)') continue;
+    const k = n.toLowerCase(), e = tot.get(k) || { name: n, amountCop: 0 }; e.amountCop += d.amountCop; tot.set(k, e);
+  }
+  c.topMonth = { month, list: [...tot.values()].sort((a, b) => b.amountCop - a.amountCop).slice(0, 5) };
   await communityRef.set(c);
 }
+// Si la meta se logró, pasa a "Metas logradas" (con su foto) antes de reemplazarla o quitarla.
+async function archiveGoalIfReached(c) {
+  const g = c.goal;
+  if (!g || !g.id || (g.raisedCop || 0) < g.targetCop) return;
+  let imageVersion = null;
+  const im = await db.collection('communityImages').doc('goal').get();
+  if (im.exists) { await db.collection('communityImages').doc(g.id).set(im.data()); imageVersion = im.data().version || Date.now(); }
+  c.pastGoals = [{ id: g.id, title: g.title, targetCop: g.targetCop, raisedCop: g.raisedCop, donationsCount: g.donationsCount || 0,
+    reachedAtIso: g.reachedAtIso || new Date().toISOString(), imageVersion }, ...(c.pastGoals || [])].slice(0, 24);
+}
+function publicPast(p) { return { id: p.id, title: p.title, targetCop: p.targetCop, raisedCop: p.raisedCop, donationsCount: p.donationsCount || 0, reachedAtIso: p.reachedAtIso, imageVersion: p.imageVersion || null }; }
 
 app.get('/api/community', communityLimiter, async (_req, res, next) => {
   try {
@@ -1377,7 +1454,12 @@ app.get('/api/community', communityLimiter, async (_req, res, next) => {
       creators: (c.creators || []).map(publicCreator),
       goal: publicGoal(c.goal),
       recent: c.recent || [],
-      clips: (c.clips || []).map(k => ({ id: k.id, creatorId: k.creatorId || null, title: k.title, platform: k.platform, embed: k.embed, thumb: k.thumb || '', vertical: Boolean(k.vertical) }))
+      live: publicLive(c.live),
+      agenda: upcomingAgenda(c.agenda),
+      top: c.topMonth && c.topMonth.month === dateInBogota().slice(0, 7) ? c.topMonth.list : [],
+      pastGoals: (c.pastGoals || []).slice(0, 12).map(publicPast),
+      serverNowIso: new Date().toISOString(),
+      clips: (c.clips || []).map(k => ({ id: k.id, creatorId: k.creatorId || null, title: k.title, platform: k.platform, url: k.url || '', embed: k.embed, thumb: k.thumb || '', vertical: Boolean(k.vertical) }))
     });
   } catch (err) { next(err); }
 });
@@ -1402,6 +1484,10 @@ app.post('/api/donate', donateLimiter, upload.single('receipt'), async (req, res
     const alias = cleanString(req.body.alias, 30) || 'Un seguidor';
     const amountCop = Math.round(Number(req.body.amountCop));
     const accepted = req.body.acceptedTerms === 'on' || req.body.acceptedTerms === 'true';
+    const reference = cleanRef(req.body.reference);
+    const phone = cleanString(req.body.phone, 10);
+    if (reference && reference.length < 4) return res.status(400).json({ error: REF_ERR });
+    if (phone && !validPhone(phone)) return res.status(400).json({ error: 'El celular debe tener 10 dígitos (o déjalo vacío).' });
     if (!(amountCop >= MIN_DONATION && amountCop <= MAX_DONATION)) return res.status(400).json({ error: 'Escribe cuánto quieres donar (un número mayor que cero).' });
     if (!accepted) return res.status(400).json({ error: 'Debes confirmar que tu donación es voluntaria.' });
     if (!req.file) return res.status(400).json({ error: 'Adjunta el comprobante de pago.' });
@@ -1409,13 +1495,13 @@ app.post('/api/donate', donateLimiter, upload.single('receipt'), async (req, res
     if (req.file.buffer.length > MAX_RECEIPT_BYTES) return res.status(413).json({ error: 'El comprobante pesa demasiado (máximo 800 KB).' });
     const id = crypto.randomUUID();
     const receiptHash = crypto.createHash('sha256').update(req.file.buffer).digest('hex');
-    const seenBefore = await receiptSeenBefore(receiptHash);
+    const seenBefore = await receiptSeenBefore(receiptHash, reference);
     await db.collection('receipts').doc(id).set({
       id, mimeType: req.file.mimetype, size: req.file.buffer.length, data: req.file.buffer,
       createdDateBogota: dateInBogota(), kind: 'donacion'
     });
     await db.collection('donations').doc(id).set({
-      id, goalId: c.goal.id, alias, amountCop, status: 'pendiente', manual: false,
+      id, goalId: c.goal.id, alias, amountCop, phone, reference, status: 'pendiente', manual: false,
       createdAtIso: new Date().toISOString(), hasReceipt: true, receiptHash, duplicateReceipt: seenBefore,
       receiptMimeType: req.file.mimetype
     });
@@ -1426,14 +1512,16 @@ app.post('/api/donate', donateLimiter, upload.single('receipt'), async (req, res
 // ---- Administración de la portada ----
 function donationView(d) {
   return { id: d.id, alias: d.alias, amountCop: d.amountCop, status: d.status, manual: Boolean(d.manual), createdAtIso: d.createdAtIso,
-    hasReceipt: Boolean(d.hasReceipt), receiptPurged: Boolean(d.receiptPurgedAt), duplicateReceipt: Boolean(d.duplicateReceipt), goalId: d.goalId };
+    hasReceipt: Boolean(d.hasReceipt), receiptPurged: Boolean(d.receiptPurgedAt), duplicateReceipt: Boolean(d.duplicateReceipt), goalId: d.goalId,
+    phone: d.phone || '', reference: d.reference || '' };
 }
-app.get('/api/admin/community', requireAdmin, async (_req, res, next) => {
+app.get('/api/admin/community', requireStaff, async (_req, res, next) => {
   try {
     const c = await getCommunity();
     const snap = await db.collection('donations').limit(5000).get();
     const donations = snap.docs.map(d => d.data()).sort((a, b) => String(b.createdAtIso).localeCompare(String(a.createdAtIso))).slice(0, 300).map(donationView);
-    res.json({ creators: (c.creators || []).map(publicCreator), goal: publicGoal(c.goal), clips: c.clips || [], donations });
+    res.json({ creators: (c.creators || []).map(publicCreator), goal: publicGoal(c.goal), clips: c.clips || [], donations, pastGoals: (c.pastGoals || []).map(publicPast),
+      live: c.live || { on: false, url: '', title: '' }, agenda: (c.agenda || []).slice().sort((a, b) => a.whenIso.localeCompare(b.whenIso)) });
   } catch (err) { next(err); }
 });
 
@@ -1487,6 +1575,8 @@ app.put('/api/admin/community/goal', requireAdmin, async (req, res, next) => {
 app.post('/api/admin/community/goal/new', requireAdmin, async (req, res, next) => {
   try {
     const g = parseGoalBody(req.body); if (g.error) return res.status(400).json({ error: g.error });
+    const cur = await getCommunity();
+    await archiveGoalIfReached(cur); await communityRef.set(cur);
     await db.collection('communityImages').doc('goal').delete();
     await saveCommunity(c => { c.goal = { id: crypto.randomUUID(), ...g, raisedCop: 0, donationsCount: 0, imageVersion: null, createdAtIso: new Date().toISOString() }; });
     await recomputeGoal();
@@ -1495,6 +1585,8 @@ app.post('/api/admin/community/goal/new', requireAdmin, async (req, res, next) =
 });
 app.delete('/api/admin/community/goal', requireAdmin, async (_req, res, next) => {
   try {
+    const cur = await getCommunity();
+    await archiveGoalIfReached(cur); await communityRef.set(cur);
     await db.collection('communityImages').doc('goal').delete();
     await saveCommunity(c => { c.goal = null; c.recent = []; });
     res.json({ ok: true });
@@ -1512,7 +1604,7 @@ app.post('/api/admin/community/image/:key', requireAdmin, upload.single('image')
     let found = true;
     await saveCommunity(c => {
       if (key === 'goal') { if (c.goal && c.goal.id) c.goal.imageVersion = version; else found = false; }
-      else { const cr = (c.creators || []).find(x => x.id === key); if (cr) cr.imageVersion = version; else found = false; }
+      else { const cr = (c.creators || []).find(x => x.id === key), pg = (c.pastGoals || []).find(x => x.id === key); if (cr) cr.imageVersion = version; else if (pg) pg.imageVersion = version; else found = false; }
     });
     if (!found) return res.status(404).json({ error: key === 'goal' ? 'Primero guarda la meta.' : 'Primero guarda al creador.' });
     await db.collection('communityImages').doc(key).set({ mimeType: req.file.mimetype, data: req.file.buffer, version });
@@ -1526,12 +1618,20 @@ app.delete('/api/admin/community/image/:key', requireAdmin, async (req, res, nex
     await db.collection('communityImages').doc(key).delete();
     await saveCommunity(c => {
       if (key === 'goal') { if (c.goal) c.goal.imageVersion = null; }
-      else { const cr = (c.creators || []).find(x => x.id === key); if (cr) cr.imageVersion = null; }
+      else { const cr = (c.creators || []).find(x => x.id === key), pg = (c.pastGoals || []).find(x => x.id === key); if (cr) cr.imageVersion = null; else if (pg) pg.imageVersion = null; }
     });
     res.json({ ok: true });
   } catch (err) { next(err); }
 });
 
+app.delete('/api/admin/community/past/:id', requireAdmin, async (req, res, next) => {
+  try {
+    if (!/^[0-9a-f-]{36}$/.test(req.params.id)) return res.status(404).json({ error: 'Meta no encontrada.' });
+    await db.collection('communityImages').doc(req.params.id).delete();
+    await saveCommunity(c => { c.pastGoals = (c.pastGoals || []).filter(p => p.id !== req.params.id); });
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+});
 app.post('/api/admin/community/clips', requireAdmin, async (req, res, next) => {
   try {
     const title = cleanString(req.body.title, 80);
@@ -1554,7 +1654,30 @@ app.delete('/api/admin/community/clips/:id', requireAdmin, async (req, res, next
   } catch (err) { next(err); }
 });
 
-app.patch('/api/admin/donations/:id', requireAdmin, async (req, res, next) => {
+app.put('/api/admin/community/live', requireAdmin, async (req, res, next) => {
+  try {
+    const on = Boolean(req.body.on), title = cleanString(req.body.title, 80), url = safeUrl(req.body.url);
+    if (on && !url) return res.status(400).json({ error: 'Pega el enlace de tu transmisión (que empiece por https://) para activar el aviso.' });
+    await saveCommunity(c => { c.live = { on, title, url }; });
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+app.put('/api/admin/community/agenda', requireAdmin, async (req, res, next) => {
+  try {
+    const list = Array.isArray(req.body.agenda) ? req.body.agenda.slice(0, 8) : [];
+    const out = [];
+    for (const a of list) {
+      const title = cleanString(a && a.title, 80), t = Date.parse(a && a.whenIso), whenIso = Number.isNaN(t) ? '' : new Date(t).toISOString();
+      if (!title && !(a && a.whenIso)) continue;
+      if (title.length < 2 || !whenIso) return res.status(400).json({ error: 'Cada directo necesita un título y una fecha y hora.' });
+      out.push({ id: /^[0-9a-f-]{36}$/.test(a.id || '') ? a.id : crypto.randomUUID(), title, note: cleanString(a.note, 120), whenIso });
+    }
+    await saveCommunity(c => { c.agenda = out; });
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+
+app.patch('/api/admin/donations/:id', requireStaff, async (req, res, next) => {
   try {
     const status = req.body.status;
     if (!['pendiente', 'verificada', 'rechazada'].includes(status)) return res.status(400).json({ error: 'Estado inválido.' });
