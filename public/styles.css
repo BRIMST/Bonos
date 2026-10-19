@@ -818,3 +818,17 @@ body.live .lookup-link a:focus-visible { outline-color: #fff; }
 .top .wrap { flex-wrap: wrap; }
 .role-verifier #cmDonBlock { border-top: 0; padding-top: 0; }
 @media (max-width: 480px) { .role-chip { display: table; margin: 4px 0 0; } }
+
+/* ---------- Tarjeta para el live (overlay) ---------- */
+body.overlay { background: transparent; min-height: 0; display: grid; place-items: start; padding: 12px; }
+.ov-card { --s: var(--ov, 1); display: flex; align-items: center; gap: calc(18px * var(--s)); padding: calc(16px * var(--s)); border-radius: calc(24px * var(--s)); background: #1a1446; color: #fff; border: 3px solid var(--gold); box-shadow: 0 10px 30px #0006; font-size: calc(16px * var(--s)); width: max-content; }
+.ov-card img { width: calc(190px * var(--s)); height: calc(190px * var(--s)); border-radius: calc(14px * var(--s)); background: #fff; display: block; }
+.ov-text { display: grid; gap: calc(4px * var(--s)); }
+.ov-kicker { color: var(--gold); font-weight: 800; letter-spacing: .04em; text-transform: uppercase; font-size: .8em; }
+.ov-link { font-size: 1.9em; line-height: 1.05; font-weight: 900; letter-spacing: -.02em; overflow-wrap: anywhere; }
+.ov-hint { color: #cfcaf5; font-size: .85em; }
+.live-tools { margin-top: 22px; border-top: 2px solid var(--line); padding-top: 18px; display: grid; gap: 10px; }
+.live-tools h2 { margin: 0; }
+.lt-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 12px; background: var(--lav); border-radius: 14px; }
+.lt-row b { min-width: 170px; } .lt-row code { flex: 1 1 200px; font-weight: 800; color: var(--violet-deep); overflow-wrap: anywhere; }
+html:has(body.overlay) { background: transparent; }

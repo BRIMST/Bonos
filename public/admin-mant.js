@@ -24,6 +24,19 @@
   });
   $('#tab-ajustes').addEventListener('click', refreshVerifier);
 
+
+  // Enlaces cortos y tarjetas para el live
+  const LT = [['Bono de la Quinta', 'q', 'quinta'], ['Ruleta de Seguidores', 'r', 'ruleta'], ['Donaciones', 'd', 'donar'], ['Página principal', '', 'home']];
+  const hostLink = k => `${location.host}/${k}`.replace(/\/$/, '');
+  $('#ltRows').innerHTML = LT.map(([name, k, to]) => `<div class="lt-row"><b>${name}</b><code>${hostLink(k)}</code>
+    <button type="button" class="secondary small-btn" data-copy="${location.origin}/${k}">Copiar enlace</button>
+    <button type="button" class="secondary small-btn" data-copy="${location.origin}/overlay.html?to=${to}">Copiar tarjeta para OBS</button>
+    <a class="secondary link-btn small-btn" target="_blank" rel="noopener" href="/overlay.html?to=${to}">Ver tarjeta ↗</a></div>`).join('');
+  $('#ltRows').addEventListener('click', async e => {
+    const b = e.target.closest('[data-copy]'); if (!b) return;
+    try { await navigator.clipboard.writeText(b.dataset.copy); toast('Copiado.', 'ok'); } catch { prompt('Copia esta dirección:', b.dataset.copy); }
+  });
+
   // QR de cada vista
   document.querySelectorAll('[data-qr]').forEach(b => b.addEventListener('click', () => {
     $('#qrUrl').value = location.origin + b.dataset.qr; $('#qrUpdate').click();
