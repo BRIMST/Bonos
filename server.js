@@ -1705,6 +1705,21 @@ app.post('/api/admin/donations', requireAdmin, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// ---- Enlaces cortos para decir en voz alta en los lives, y QR público (solo de las páginas del sitio) ----
+const SHORT = { q: '/quinta.html', r: '/ruleta.html', d: '/#donar', c: '/consulta.html' };
+app.get('/:k(q|r|d|c)', (req, res) => res.redirect(302, SHORT[req.params.k]));
+const QR_TARGETS = { home: '/', quinta: '/quinta.html', ruleta: '/ruleta.html', donar: '/#donar' };
+app.get('/api/qr.png', async (req, res, next) => {
+  try {
+    const path_ = QR_TARGETS[req.query.to] || '/';
+    const host = req.headers['x-forwarded-host'] || req.headers.host;
+    const QRCode = require('qrcode');
+    res.setHeader('Content-Type', 'image/png');
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    res.send(await QRCode.toBuffer(`https://${host}${path_}`, { errorCorrectionLevel: 'H', margin: 2, width: 700, color: { dark: '#1a1446', light: '#ffffff' } }));
+  } catch (err) { next(err); }
+});
+
 app.get('/admin', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'admin.html')));
 app.get('*', (req, res, next) => {
   if (req.path.startsWith('/api/')) return res.status(404).json({ error: 'Ruta no encontrada.' });

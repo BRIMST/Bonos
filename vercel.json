@@ -1,7 +1,35 @@
 {
   "version": 2,
   "rewrites": [
-    { "source": "/admin", "destination": "/api/index.js" },
-    { "source": "/api/(.*)", "destination": "/api/index.js" }
+    {
+      "source": "/admin",
+      "destination": "/api/index.js"
+    },
+    {
+      "source": "/api/(.*)",
+      "destination": "/api/index.js"
+    }
+  ],
+  "redirects": [
+    {
+      "source": "/q",
+      "destination": "/quinta.html",
+      "permanent": false
+    },
+    {
+      "source": "/r",
+      "destination": "/ruleta.html",
+      "permanent": false
+    },
+    {
+      "source": "/d",
+      "destination": "/#donar",
+      "permanent": false
+    },
+    {
+      "source": "/c",
+      "destination": "/consulta.html",
+      "permanent": false
+    }
   ]
 }
